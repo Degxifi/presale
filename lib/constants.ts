@@ -79,6 +79,8 @@ export const PROFIT_SCENARIOS = [
   { marketCap: 50_000_000, pricePerToken: 0.05, roi: { 1: 137.89, 2: 103.17, 3: 82.33 } },
   { marketCap: 100_000_000, pricePerToken: 0.1, roi: { 1: 276.78, 2: 207.33, 3: 165.67 } },
   { marketCap: 1_000_000_000, pricePerToken: 1, roi: { 1: 2776.78, 2: 2082.33, 3: 1665.67 } },
+  { marketCap: 5_000_000_000, pricePerToken: 5, roi: { 1: 13887.89, 2: 10415.67, 3: 8332.33 } },
+  { marketCap: 10_000_000_000, pricePerToken: 10, roi: { 1: 27776.78, 2: 20832.33, 3: 16665.67 } },
 ] as const satisfies readonly ProfitScenario[];
 
 /** Wallets supported by the connect flow (brief §4.4). */
