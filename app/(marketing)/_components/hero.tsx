@@ -1,19 +1,13 @@
 import Link from "next/link";
 import { PRESALE, TIERS, TOKEN } from "@/lib/constants";
-import { presaleEndsAt } from "@/lib/presale";
 import { tokenPrice, usdCompact } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
-import { Countdown } from "@/components/marketing/countdown";
+import { PresaleCountdown } from "@/components/marketing/presale-countdown";
 import { BuyButton } from "@/components/presale/buy-button";
 
 export function Hero() {
-  const startStr = process.env.NEXT_PUBLIC_PRESALE_START;
-  const endIso = startStr
-    ? presaleEndsAt(new Date(startStr)).toISOString()
-    : null;
-
   return (
     <section className="relative overflow-hidden">
       {/* subtle backdrop glow */}
@@ -39,7 +33,7 @@ export function Hero() {
         </p>
 
         <div className="mt-10">
-          <Countdown target={endIso} />
+          <PresaleCountdown />
         </div>
 
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row">

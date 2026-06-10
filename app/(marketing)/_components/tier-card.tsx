@@ -19,7 +19,8 @@ const VIS: Record<
 function statusLabel(tier: Tier, status: TierStatus): string {
   if (status === "active") return "Open now";
   if (status === "filled") return "Filled";
-  if (status === "ended") return "Closed";
+  if (status === "paused") return "Paused";
+  if (status === "closed" || status === "ended") return "Closed";
   return tier.id === 1 ? "Opens at launch" : `Opens when Tier ${tier.id - 1} fills`;
 }
 
