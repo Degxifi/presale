@@ -18,12 +18,12 @@ export function Hero() {
       <Container className="flex flex-col items-center py-20 text-center sm:py-28">
         <Badge variant="accent">
           <span className="size-1.5 rounded-full bg-accent glow-accent" />
-          Solana · Jupiter Studio · {TOKEN.quoteCurrency} only
+          Solana - {TOKEN.quoteCurrency} only
         </Badge>
 
         <h1 className="mt-6 max-w-4xl text-balance text-5xl font-bold tracking-tight sm:text-6xl lg:text-7xl">
           Get in at <span className="text-accent">{tokenPrice(TIERS[0].price)}</span>{" "}
-          — before it steps up to {tokenPrice(TIERS[2].price)}
+          before it steps up to {tokenPrice(TIERS[2].price)}
         </h1>
 
         <p className="mt-6 max-w-2xl text-balance text-lg text-muted sm:text-xl">

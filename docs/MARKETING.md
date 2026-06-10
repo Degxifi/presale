@@ -50,7 +50,7 @@ graduation) → **Tokenomics** → **TrustBar** → **SocialProof / LiveBuysFeed
 Repeat the CTA at hero / mid / end + sticky. First-person CTA copy
 ("Get My Tier-1 Price"). Mobile-first (most traffic is in-wallet browsers).
 
-**Hero candidates:** "Get in at $0.00036 — before the price steps up to
+**Hero candidates:** "Get in at $0.00036 before the price steps up to
 $0.00060." / "Buy $DEGX at presale price. Graduate at +67% to Jupiter Studio."
 (ROI always conditional.)
 
