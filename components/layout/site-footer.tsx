@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { SVGProps } from "react";
 import { Container } from "@/components/ui/container";
@@ -42,7 +43,7 @@ export function SiteFooter() {
           {/* Brand */}
           <div className="max-w-sm">
             <Link href="/" className="flex items-center gap-2">
-              <span className="size-2.5 rounded-full bg-accent glow-accent" />
+              <Image src="/logo.png" alt="Degxifi" width={28} height={28} className="size-7" />
               <span className="font-display text-lg font-bold tracking-tight">
                 <span className="text-accent">$</span>DEGX
               </span>

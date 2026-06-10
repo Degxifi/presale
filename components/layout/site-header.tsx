@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -24,7 +25,14 @@ export function SiteHeader() {
           onClick={() => setOpen(false)}
           className="group flex items-center gap-2"
         >
-          <span className="size-2.5 rounded-full bg-accent transition-transform group-hover:scale-125 glow-accent" />
+          <Image
+            src="/logo.png"
+            alt="Degxifi"
+            width={28}
+            height={28}
+            priority
+            className="size-7 transition-transform group-hover:scale-110"
+          />
           <span className="font-display text-lg font-bold tracking-tight">
             <span className="text-accent">$</span>DEGX
           </span>
