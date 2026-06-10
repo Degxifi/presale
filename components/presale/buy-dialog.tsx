@@ -6,7 +6,7 @@ import { PublicKey } from "@solana/web3.js";
 import { Check, ExternalLink, Loader2 } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { buildUsdcTransfer, confirmSignature } from "@/lib/solana/usdc";
+import { buildUsdcTransfer, checkFunds, confirmSignature } from "@/lib/solana/usdc";
 import {
   PRESALE_WALLET_ADDRESS,
   isPresaleConfigured,
@@ -84,6 +84,13 @@ export function BuyDialog({
         return;
       }
 
+      const fundsError = await checkFunds(connection, publicKey, value);
+      if (fundsError) {
+        setStatus("idle");
+        setError(fundsError);
+        return;
+      }
+
       const recipient = new PublicKey(PRESALE_WALLET_ADDRESS);
       const tx = await buildUsdcTransfer(connection, publicKey, recipient, value);
       const signature = await sendTransaction(tx, connection);
@@ -100,8 +107,11 @@ export function BuyDialog({
       setStatus("success");
     } catch (e) {
       setStatus("error");
+      const message = e instanceof Error ? e.message : "";
       setError(
-        e instanceof Error ? e.message : "Transaction failed. Please try again.",
+        /broadcast|status code 500|simulat/i.test(message)
+          ? "Your wallet couldn't broadcast the transaction. Make sure you have enough USDC and some SOL for fees, then try again."
+          : message || "Transaction failed. Please try again.",
       );
     }
   };

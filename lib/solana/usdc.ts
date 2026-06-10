@@ -10,6 +10,41 @@ import { USDC_DECIMALS, USDC_MINT_ADDRESS } from "./config";
 export const usdcBaseUnits = (amount: number): bigint =>
   BigInt(Math.round(amount * 10 ** USDC_DECIMALS));
 
+/** Lamports the payer needs for the tx fee plus possible ATA rent. */
+const MIN_SOL_LAMPORTS = 2_000_000; // ~0.002 SOL
+
+/**
+ * Pre-flight funds check so buyers get a clear message instead of an opaque
+ * wallet broadcast error. Returns a user-facing problem description, or null
+ * when the wallet can cover `amount` USDC plus network fees.
+ */
+export async function checkFunds(
+  connection: Connection,
+  payer: PublicKey,
+  amount: number,
+): Promise<string | null> {
+  const mint = new PublicKey(USDC_MINT_ADDRESS);
+  const fromAta = getAssociatedTokenAddressSync(mint, payer);
+
+  let usdcBalance = BigInt(0);
+  try {
+    const { value } = await connection.getTokenAccountBalance(fromAta);
+    usdcBalance = BigInt(value.amount);
+  } catch {
+    // Token account doesn't exist — the wallet holds no USDC.
+  }
+  if (usdcBalance < usdcBaseUnits(amount)) {
+    const held = Number(usdcBalance) / 10 ** USDC_DECIMALS;
+    return `You need at least ${amount} USDC in your wallet (current balance: ${held.toFixed(2)} USDC).`;
+  }
+
+  const lamports = await connection.getBalance(payer);
+  if (lamports < MIN_SOL_LAMPORTS) {
+    return "You need a small amount of SOL (~0.002) in your wallet to pay network fees.";
+  }
+  return null;
+}
+
 /**
  * Build a USDC transfer from `payer` to `recipientWallet`. Creates the
  * recipient's USDC token account if it doesn't exist yet (idempotent). The
