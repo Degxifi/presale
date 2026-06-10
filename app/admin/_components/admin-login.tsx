@@ -76,7 +76,7 @@ export function AdminLogin({ configured }: { configured: boolean }) {
         />
         {error && <p className="text-sm text-danger">{error}</p>}
         <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? "…" : mode === "signin" ? "Sign in" : "Create admin"}
+          {loading ? "…" : mode === "signin" ? "Sign in" : "Create account"}
         </Button>
         <button
           type="button"
@@ -84,7 +84,7 @@ export function AdminLogin({ configured }: { configured: boolean }) {
           className="w-full text-center text-xs text-muted transition-colors hover:text-foreground"
         >
           {mode === "signin"
-            ? "First time? Create the admin account"
+            ? "First time? Create an account"
             : "Have an account? Sign in"}
         </button>
       </form>

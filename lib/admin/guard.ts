@@ -1,20 +1,24 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 
-/** True if auth + an admin email are configured. */
-export const isAdminConfigured = () =>
-  Boolean(auth && process.env.ADMIN_EMAIL);
+/** Auth is usable when the DB (and thus Better Auth) is configured. */
+export const isAdminConfigured = () => Boolean(auth);
 
-/**
- * Returns the session only if the request is the configured admin
- * (logged in AND email === ADMIN_EMAIL); otherwise null.
- */
-export async function getAdminSession() {
+/** Raw session (any logged-in user) or null. */
+export async function getSession() {
   if (!auth) return null;
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return null;
-  const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase();
-  return adminEmail && session.user.email.toLowerCase() === adminEmail
-    ? session
-    : null;
+  return auth.api.getSession({ headers: await headers() });
+}
+
+type WithRole = { role?: string };
+
+/** True if a session user has the admin role (DB-stored). */
+export function isAdmin(session: Awaited<ReturnType<typeof getSession>>): boolean {
+  return (session?.user as WithRole | undefined)?.role === "admin";
+}
+
+/** Session only if the user is an admin; otherwise null. */
+export async function getAdminSession() {
+  const session = await getSession();
+  return session && isAdmin(session) ? session : null;
 }

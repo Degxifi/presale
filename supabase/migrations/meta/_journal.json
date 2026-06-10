@@ -15,6 +15,13 @@
       "when": 1781096822345,
       "tag": "0001_parched_freak",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781101560693,
+      "tag": "0002_petite_kate_bishop",
+      "breakpoints": true
     }
   ]
 }

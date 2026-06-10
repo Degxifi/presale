@@ -1,15 +1,16 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
+import { count } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as authSchema from "@/lib/db/auth-schema";
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL?.toLowerCase();
-
 /**
- * Better Auth instance (email + password) backed by Drizzle/Postgres. Only the
- * configured ADMIN_EMAIL may ever create an account, so the single admin is the
- * only possible user. `null` when the DB isn't configured (auth then 503s).
+ * Better Auth (email + password) over Drizzle/Postgres. Roles live in the DB
+ * (`user.role`), so there can be multiple admins. The first registered user
+ * becomes the founding admin; everyone else starts as 'user' until an existing
+ * admin promotes them (see the admin dashboard / /api/admin/users).
+ * `null` when the DB isn't configured (auth then 503s).
  */
 export const auth = db
   ? betterAuth({
@@ -17,14 +18,31 @@ export const auth = db
       baseURL: process.env.BETTER_AUTH_URL,
       database: drizzleAdapter(db, { provider: "pg", schema: authSchema }),
       emailAndPassword: { enabled: true },
+      user: {
+        additionalFields: {
+          // exposed in the session; not client-settable (set server-side only)
+          role: {
+            type: "string",
+            required: false,
+            input: false,
+            defaultValue: "user",
+          },
+        },
+      },
       databaseHooks: {
         user: {
           create: {
             before: async (newUser) => {
-              if (!ADMIN_EMAIL || newUser.email.toLowerCase() !== ADMIN_EMAIL) {
-                throw new Error("Sign-ups are disabled.");
+              // First user to register becomes the founding admin; promote
+              // others from the admin dashboard (DB-stored roles).
+              let role = "user";
+              if (db) {
+                const [row] = await db
+                  .select({ c: count() })
+                  .from(authSchema.user);
+                if (!row || Number(row.c) === 0) role = "admin";
               }
-              return { data: newUser };
+              return { data: { ...newUser, role } };
             },
           },
         },

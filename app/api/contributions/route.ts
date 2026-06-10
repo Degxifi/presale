@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { ipAddress } from "@vercel/functions";
 import { PRESALE_WALLET_ADDRESS, isPresaleConfigured } from "@/lib/solana/config";
 import { verifyUsdcContribution } from "@/lib/solana/verify";
 import { getTier } from "@/lib/presale";
 import { recordContribution } from "@/lib/db/queries";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { TierId } from "@/types/presale";
 
 /**
@@ -10,6 +12,14 @@ import type { TierId } from "@/types/presale";
  * transaction (verified here), never trusted from the client.
  */
 export async function POST(request: Request) {
+  const ip = ipAddress(request) ?? "anonymous";
+  if (!(await checkRateLimit(`contrib:${ip}`))) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      { status: 429 },
+    );
+  }
+
   if (!isPresaleConfigured()) {
     return NextResponse.json(
       { error: "Presale wallet is not configured." },

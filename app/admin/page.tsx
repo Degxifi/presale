@@ -1,4 +1,4 @@
-import { getAdminSession, isAdminConfigured } from "@/lib/admin/guard";
+import { getSession, isAdmin, isAdminConfigured } from "@/lib/admin/guard";
 import { getAllContributions, getRawStats, getSettings } from "@/lib/db/queries";
 import { computeTierProgress, degxForUsdc, getPresalePhase, getTier } from "@/lib/presale";
 import { num, shortWallet, usd } from "@/lib/format";
@@ -6,6 +6,7 @@ import { PRESALE_WALLET_ADDRESS, isPresaleConfigured } from "@/lib/solana/config
 import { buttonVariants } from "@/components/ui/button";
 import { AdminShell } from "./_components/admin-shell";
 import { AdminLogin } from "./_components/admin-login";
+import { AdminUsers } from "./_components/admin-users";
 import { AnnouncementEditor } from "./_components/announcement-editor";
 import { StartEditor } from "./_components/start-editor";
 import { TierControls } from "./_components/tier-controls";
@@ -14,7 +15,7 @@ import type { TierId } from "@/types/presale";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  const session = await getAdminSession();
+  const session = await getSession();
   if (!session) {
     return (
       <AdminShell>
@@ -22,8 +23,18 @@ export default async function AdminPage() {
       </AdminShell>
     );
   }
+  if (!isAdmin(session)) {
+    return (
+      <AdminShell email={session.user.email}>
+        <div className="mx-auto max-w-md rounded-2xl border border-border bg-surface p-6 text-center text-sm text-muted">
+          Your account doesn&apos;t have admin access yet — ask an existing admin
+          to grant it.
+        </div>
+      </AdminShell>
+    );
+  }
 
-  // Authed: load live data.
+  // Authed admin: load live data.
   const [{ raisedByTier, participantCount }, settings, all] = await Promise.all([
     getRawStats(),
     getSettings(),
@@ -96,6 +107,8 @@ export default async function AdminPage() {
           <AnnouncementEditor initial={settings.announcement} />
         </div>
         <TierControls initial={settings.tierOverrides} />
+
+        <AdminUsers />
 
         <div className="rounded-2xl border border-border bg-surface p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">

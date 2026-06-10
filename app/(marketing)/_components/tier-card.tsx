@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { BuyButton } from "@/components/presale/buy-button";
+import { WalletTierCap } from "@/components/marketing/wallet-tier-cap";
 import { cn } from "@/lib/utils";
 import { num, percent, tokenPrice, usd } from "@/lib/format";
 import type { Tier, TierId, TierStatus } from "@/types/presale";
@@ -104,6 +105,7 @@ export function TierCard({
             {label}
           </Button>
         )}
+        <WalletTierCap tier={tier} />
       </div>
     </div>
   );

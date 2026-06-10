@@ -2,6 +2,7 @@ import { and, countDistinct, desc, eq } from "drizzle-orm";
 import type { TierId } from "@/types/presale";
 import { db } from "./index";
 import { appSettings, contributions } from "./schema";
+import { user as authUser } from "./auth-schema";
 
 export type RecentBuy = {
   wallet: string;
@@ -149,4 +150,33 @@ export async function updateSettings(
     .insert(appSettings)
     .values({ id: 1, ...set })
     .onConflictDoUpdate({ target: appSettings.id, set });
+}
+
+// ---- Admin users (roles) ------------------------------------------------
+
+export type AdminUser = {
+  id: string;
+  email: string;
+  role: string;
+  createdAt: string;
+};
+
+/** All auth users with their roles (admin management). */
+export async function listUsers(): Promise<AdminUser[]> {
+  if (!db) return [];
+  const rows = await db
+    .select({
+      id: authUser.id,
+      email: authUser.email,
+      role: authUser.role,
+      createdAt: authUser.createdAt,
+    })
+    .from(authUser)
+    .orderBy(authUser.createdAt);
+  return rows.map((r) => ({
+    id: r.id,
+    email: r.email,
+    role: r.role ?? "user",
+    createdAt: r.createdAt.toISOString(),
+  }));
 }

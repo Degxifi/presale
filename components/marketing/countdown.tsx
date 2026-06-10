@@ -22,6 +22,14 @@ function getParts(targetMs: number): Parts {
   };
 }
 
+function fmtDate(iso: string, timeZone?: string) {
+  return new Date(iso).toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone,
+  });
+}
+
 /**
  * 7-day-style countdown. `target` is an ISO string (presale end) or null when
  * unconfigured. Ticks every second; persists across reloads (time-based, not a
@@ -64,17 +72,22 @@ export function Countdown({ target }: { target: string | null }) {
   ];
 
   return (
-    <div className="flex items-center gap-2 sm:gap-3">
-      {items.map((it) => (
-        <div key={it.label} className="flex flex-col items-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-surface font-display text-2xl font-bold tabular-nums sm:h-16 sm:w-16 sm:text-3xl">
-            {it.value === undefined ? "--" : String(it.value).padStart(2, "0")}
+    <div className="flex flex-col items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
+        {items.map((it) => (
+          <div key={it.label} className="flex flex-col items-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-surface font-display text-2xl font-bold tabular-nums sm:h-16 sm:w-16 sm:text-3xl">
+              {it.value === undefined ? "--" : String(it.value).padStart(2, "0")}
+            </div>
+            <span className="mt-1.5 text-[11px] uppercase tracking-wider text-muted">
+              {it.label}
+            </span>
           </div>
-          <span className="mt-1.5 text-[11px] uppercase tracking-wider text-muted">
-            {it.label}
-          </span>
-        </div>
-      ))}
+        ))}
+      </div>
+      <p className="text-xs text-muted">
+        Ends {fmtDate(target, "UTC")} UTC · {fmtDate(target)} your time
+      </p>
     </div>
   );
 }
