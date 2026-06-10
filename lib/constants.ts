@@ -71,7 +71,7 @@ export const TIERS = [
  * Internally consistent: price/token = marketCap ÷ total supply (1B).
  */
 export const PROFIT_SCENARIOS = [
-  { marketCap: 600_000, pricePerToken: 0.0006, roi: { 1: 0.67, 2: 0.25, 3: 0 } },
+  { marketCap: 600_000, pricePerToken: 0.0006, roi: { 1: 0.67, 2: 0.25, 3: 0.15 } },
   { marketCap: 1_000_000, pricePerToken: 0.001, roi: { 1: 1.78, 2: 1.08, 3: 0.67 } },
   { marketCap: 2_000_000, pricePerToken: 0.002, roi: { 1: 4.56, 2: 3.17, 3: 2.33 } },
   { marketCap: 5_000_000, pricePerToken: 0.005, roi: { 1: 12.89, 2: 9.42, 3: 7.33 } },
