@@ -83,15 +83,6 @@ export function SiteFooter() {
           </nav>
         </div>
 
-        {/* Risk disclaimer (compliance — appears site-wide) */}
-        <p className="mt-12 border-t border-border/60 pt-6 text-xs leading-relaxed text-muted">
-          Cryptocurrency involves substantial risk — you may lose your entire
-          contribution. $DEGX is a utility/access token with no promise of profit;
-          any ROI figures are illustrative and conditional, not guaranteed.
-          Contributions are non-refundable once confirmed on-chain. Nothing here is
-          financial advice. USDC on Solana only. Not available where prohibited.
-        </p>
-
         <div className="mt-6 flex flex-col gap-2 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
           <span>
             © {year} Degxifi. All rights reserved.
