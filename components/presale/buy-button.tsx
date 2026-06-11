@@ -19,7 +19,7 @@ export function BuyButton({
   size,
   variant,
   className,
-  label = "Connect Wallet & Buy",
+  label = "Connect Wallet and Buy",
   connectedLabel = "Buy $DEGX",
 }: {
   tier: Tier;
