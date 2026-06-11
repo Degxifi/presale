@@ -9,8 +9,6 @@ import { RoiScenarios } from "./_components/roi-scenarios";
 import { HowItWorksSection } from "./_components/how-it-works-section";
 import { FaqSection } from "./_components/faq-section";
 import { FinalCta } from "./_components/final-cta";
-import { RaisedCounter } from "@/components/marketing/raised-counter";
-import { LiveBuysFeed } from "@/components/marketing/live-buys-feed";
 
 export default function PresaleLandingPage() {
   return (
@@ -34,18 +32,6 @@ export default function PresaleLandingPage() {
         />
         <Reveal className="mt-12">
           <TierCards />
-        </Reveal>
-      </Section>
-
-      <Section id="live" className="pt-0">
-        <SectionHeader
-          eyebrow="Live"
-          title="Join the momentum"
-          description="Real-time contributions from the community as the presale fills."
-        />
-        <Reveal className="mx-auto mt-12 grid max-w-2xl gap-6">
-          <RaisedCounter />
-          <LiveBuysFeed />
         </Reveal>
       </Section>
 
