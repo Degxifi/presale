@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeader } from "@/components/ui/section";
 import { Reveal } from "@/components/motion/reveal";
@@ -10,7 +12,13 @@ import { HowItWorksSection } from "./_components/how-it-works-section";
 import { FaqSection } from "./_components/faq-section";
 import { FinalCta } from "./_components/final-cta";
 
-export default function PresaleLandingPage() {
+export default async function PresaleLandingPage() {
+  // Membership tier from the access cookie — Early Believers (round 1) is
+  // reserved for tier-1 members (D-VIP/D-Pro levels 3-6).
+  const cookieStore = await cookies();
+  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
+  const accessTier = access?.tier ?? null;
+
   return (
     <>
       <Hero />
@@ -31,7 +39,7 @@ export default function PresaleLandingPage() {
           description="Tiers fill in order — the earlier you join, the lower your price."
         />
         <Reveal className="mt-12">
-          <TierCards />
+          <TierCards accessTier={accessTier} />
         </Reveal>
       </Section>
 

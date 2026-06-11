@@ -69,38 +69,43 @@ export async function POST(request: Request) {
     );
   }
 
+  const t = getTier(tier as TierId);
+
+  // Enforce what the tier cards promise, server-side — checked BEFORE the
+  // on-chain lookup so out-of-band submissions fail fast: the tier must be
+  // OPEN (launch time + sequential fill + admin overrides), and round 1
+  // (Early Believers) is reserved for tier-1 members (D-VIP/D-Pro 3-6).
+  const [{ raisedByTier }, settings] = await Promise.all([
+    getRawStats(),
+    getSettings(),
+  ]);
+  const phase = getPresalePhase(
+    settings.presaleStart ?? process.env.NEXT_PUBLIC_PRESALE_START ?? null,
+  );
+  const progress = computeTierProgress(raisedByTier, phase, settings.tierOverrides);
+  const tierStatus = progress.find((p) => p.tierId === t.id)?.status;
+  if (tierStatus !== "active") {
+    return NextResponse.json(
+      { error: `${t.name} is not open for contributions right now.` },
+      { status: 400 },
+    );
+  }
+  if (t.id === 1 && access.tier !== 1) {
+    return NextResponse.json(
+      { error: "Early Believers is reserved for D-VIP/D-Pro 3+ members." },
+      { status: 403 },
+    );
+  }
+
   try {
     const { amount } = await verifyUsdcContribution(
       txSig,
       PRESALE_WALLET_ADDRESS,
       wallet,
     );
-    const t = getTier(tier as TierId);
     if (amount < t.minBuy - 0.01) {
       return NextResponse.json(
         { error: "Amount is below the tier minimum." },
-        { status: 400 },
-      );
-    }
-
-    // Enforce what the tier cards promise, server-side: the tier must be OPEN
-    // (sequential fill / launch time / admin overrides) and the cumulative
-    // per-wallet cap must hold. The dialog checks both before funds move, so
-    // only out-of-band submissions are rejected here.
-    const [{ raisedByTier }, settings] = await Promise.all([
-      getRawStats(),
-      getSettings(),
-    ]);
-    const phase = getPresalePhase(
-      settings.presaleStart ?? process.env.NEXT_PUBLIC_PRESALE_START ?? null,
-    );
-    const progress = computeTierProgress(raisedByTier, phase, settings.tierOverrides);
-    const tierStatus = progress.find((p) => p.tierId === t.id)?.status;
-    if (tierStatus !== "active") {
-      return NextResponse.json(
-        {
-          error: `${t.name} is not open for contributions right now. Contact support about transaction ${txSig}.`,
-        },
         { status: 400 },
       );
     }

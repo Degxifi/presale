@@ -73,6 +73,29 @@ export function BuyDialog({
       setStatus("submitting");
       const owner = publicKey.toBase58();
 
+      // Early Believers (round 1) is reserved for tier-1 members — verified
+      // against the access cookie BEFORE funds move. Fails closed: if the
+      // check can't run we don't let the user send unallocatable USDC.
+      if (tier.id === 1) {
+        let memberTier: number | null = null;
+        try {
+          const meRes = await fetch("/api/access", { cache: "no-store" });
+          if (meRes.ok) {
+            const me = (await meRes.json()) as { tier?: number };
+            memberTier = me.tier ?? null;
+          }
+        } catch {
+          memberTier = null;
+        }
+        if (memberTier !== 1) {
+          setStatus("idle");
+          setError(
+            "Early Believers is reserved for D-VIP/D-Pro 3+ members. You can join when Early Supporters opens.",
+          );
+          return;
+        }
+      }
+
       // Cumulative per-wallet cap (brief §6) — checked before sending funds.
       const already = await getWalletTierRaised(owner, tier.id);
       if (already + value > tier.maxBuy + 0.01) {
