@@ -17,8 +17,10 @@ export function AdminLogin({ configured }: { configured: boolean }) {
     return (
       <div className="mx-auto max-w-md rounded-2xl border border-border bg-surface p-6 text-sm text-muted">
         Admin auth isn&apos;t configured. Set <code>DATABASE_URL</code>,{" "}
-        <code>BETTER_AUTH_SECRET</code>, and <code>ADMIN_EMAIL</code>, then run{" "}
-        <code>pnpm db:migrate</code>.
+        <code>BETTER_AUTH_SECRET</code>, and <code>BETTER_AUTH_URL</code> in the
+        hosting environment, redeploy, then register the first account — it
+        becomes the founding admin. (Run <code>pnpm db:migrate</code> only if
+        the database tables don&apos;t exist yet.)
       </div>
     );
   }
