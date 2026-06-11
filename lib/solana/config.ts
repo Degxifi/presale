@@ -20,7 +20,7 @@ export const USDC_DECIMALS = 6;
  * admin-settable, so it can't be redirected by a config change or compromised
  * admin). All presale USDC is sent here.
  */
-export const PRESALE_WALLET_ADDRESS = "G7PaNYg2cjwELnQMGftrx6QKhPvAP4WhhdY5x6KRDTsH";
+export const PRESALE_WALLET_ADDRESS = "yDAtT5WmU83NFRKgLMryL825RnGWmxbUe7g4NYZa5CM";
 
 export const isPresaleConfigured = () => PRESALE_WALLET_ADDRESS.length > 0;
 

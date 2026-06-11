@@ -39,7 +39,6 @@ export function BuyButton({
         size={size}
         variant={variant}
         className={className}
-        disabled
         onClick={() => (connected ? setOpen(true) : setVisible(true))}
       >
         {connected ? connectedLabel : label}
