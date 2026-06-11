@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { ipAddress } from "@vercel/functions";
+import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access";
 import { PRESALE_WALLET_ADDRESS, isPresaleConfigured } from "@/lib/solana/config";
 import { verifyUsdcContribution } from "@/lib/solana/verify";
 import { getTier } from "@/lib/presale";
@@ -24,6 +26,17 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Presale wallet is not configured." },
       { status: 503 },
+    );
+  }
+
+  // Members-only: the signed access cookie is required to record a buy
+  // (defense in depth — middleware already blocks /api without it).
+  const cookieStore = await cookies();
+  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
+  if (!access) {
+    return NextResponse.json(
+      { error: "Presale access required. Open the presale from your Degxifi dashboard." },
+      { status: 401 },
     );
   }
 
