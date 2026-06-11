@@ -84,6 +84,26 @@ export function BuyDialog({
         return;
       }
 
+      // Tier must still be open (launch time + sequential fill) before funds
+      // move — the server re-checks before recording, but failing here saves
+      // the user from sending USDC that can't be allocated.
+      try {
+        const statsRes = await fetch("/api/presale/stats", { cache: "no-store" });
+        if (statsRes.ok) {
+          const stats = (await statsRes.json()) as {
+            tiers?: { tierId: number; status: string }[];
+          };
+          const live = stats.tiers?.find((p) => p.tierId === tier.id)?.status;
+          if (live && live !== "active") {
+            setStatus("idle");
+            setError("This tier isn't open right now — it may have just filled.");
+            return;
+          }
+        }
+      } catch {
+        // stats hiccup: continue; the server still enforces before recording
+      }
+
       const fundsError = await checkFunds(connection, publicKey, value);
       if (fundsError) {
         setStatus("idle");

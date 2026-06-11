@@ -4,8 +4,13 @@ import { ipAddress } from "@vercel/functions";
 import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access";
 import { PRESALE_WALLET_ADDRESS, isPresaleConfigured } from "@/lib/solana/config";
 import { verifyUsdcContribution } from "@/lib/solana/verify";
-import { getTier } from "@/lib/presale";
-import { recordContribution } from "@/lib/db/queries";
+import { computeTierProgress, getPresalePhase, getTier } from "@/lib/presale";
+import {
+  getRawStats,
+  getSettings,
+  getWalletRaisedByTier,
+  recordContribution,
+} from "@/lib/db/queries";
 import { checkRateLimit } from "@/lib/rate-limit";
 import type { TierId } from "@/types/presale";
 
@@ -77,6 +82,39 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    // Enforce what the tier cards promise, server-side: the tier must be OPEN
+    // (sequential fill / launch time / admin overrides) and the cumulative
+    // per-wallet cap must hold. The dialog checks both before funds move, so
+    // only out-of-band submissions are rejected here.
+    const [{ raisedByTier }, settings] = await Promise.all([
+      getRawStats(),
+      getSettings(),
+    ]);
+    const phase = getPresalePhase(
+      settings.presaleStart ?? process.env.NEXT_PUBLIC_PRESALE_START ?? null,
+    );
+    const progress = computeTierProgress(raisedByTier, phase, settings.tierOverrides);
+    const tierStatus = progress.find((p) => p.tierId === t.id)?.status;
+    if (tierStatus !== "active") {
+      return NextResponse.json(
+        {
+          error: `${t.name} is not open for contributions right now. Contact support about transaction ${txSig}.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const walletRaised = await getWalletRaisedByTier(wallet);
+    if (walletRaised[t.id] + amount > t.maxBuy + 0.01) {
+      return NextResponse.json(
+        {
+          error: `This wallet is over the ${t.name} per-wallet cap. Contact support about transaction ${txSig}.`,
+        },
+        { status: 400 },
+      );
+    }
+
     await recordContribution({ wallet, tier: tier as TierId, amount, txSig });
     return NextResponse.json({ ok: true, amount });
   } catch (e) {
