@@ -73,6 +73,29 @@ export function BuyDialog({
       setStatus("submitting");
       const owner = publicKey.toBase58();
 
+      // Early Believers (round 1) is reserved for tier-1 members — verified
+      // against the access cookie BEFORE funds move. Fails closed: if the
+      // check can't run we don't let the user send unallocatable USDC.
+      if (tier.id === 1) {
+        let memberTier: number | null = null;
+        try {
+          const meRes = await fetch("/api/access", { cache: "no-store" });
+          if (meRes.ok) {
+            const me = (await meRes.json()) as { tier?: number };
+            memberTier = me.tier ?? null;
+          }
+        } catch {
+          memberTier = null;
+        }
+        if (memberTier !== 1) {
+          setStatus("idle");
+          setError(
+            "Early Believers is reserved for D-VIP/D-Pro 3+ members. You can join when Early Supporters opens.",
+          );
+          return;
+        }
+      }
+
       // Cumulative per-wallet cap (brief §6) — checked before sending funds.
       const already = await getWalletTierRaised(owner, tier.id);
       if (already + value > tier.maxBuy + 0.01) {
@@ -82,6 +105,26 @@ export function BuyDialog({
             (already > 0 ? ` (already ${usd(already)}).` : "."),
         );
         return;
+      }
+
+      // Tier must still be open (launch time + sequential fill) before funds
+      // move — the server re-checks before recording, but failing here saves
+      // the user from sending USDC that can't be allocated.
+      try {
+        const statsRes = await fetch("/api/presale/stats", { cache: "no-store" });
+        if (statsRes.ok) {
+          const stats = (await statsRes.json()) as {
+            tiers?: { tierId: number; status: string }[];
+          };
+          const live = stats.tiers?.find((p) => p.tierId === tier.id)?.status;
+          if (live && live !== "active") {
+            setStatus("idle");
+            setError("This tier isn't open right now — it may have just filled.");
+            return;
+          }
+        }
+      } catch {
+        // stats hiccup: continue; the server still enforces before recording
       }
 
       const fundsError = await checkFunds(connection, publicKey, value);

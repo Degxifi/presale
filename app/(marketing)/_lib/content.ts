@@ -56,16 +56,7 @@ export const faqItems: AccordionItem[] = [
   {
     question: "Is there a minimum or maximum?",
     answer:
-      "Minimum is $50 USDC. Per-wallet maximums are $500 (Tier 1), $1,000 (Tier 2), and $2,000 (Tier 3), cumulative across transactions.",
-  },
-  {
-    question: "Are contributions refundable?",
-    answer:
-      "No. Presale contributions are non-refundable once the transaction is confirmed on-chain.",
-  },
-  {
-    question: "What are the risks?",
-    answer:
-      "Crypto is volatile and you may lose your entire contribution. $DEGX is a utility/access token with no promise of profit; any ROI figures are conditional, not guaranteed. Nothing here is financial advice.",
+      "Minimum is $50 USDC. Per-wallet maximums are $2,000 (Tier 1), $1,000 (Tier 2), and $500 (Tier 3), cumulative across transactions.",
   },
 ];
+

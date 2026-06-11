@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeader } from "@/components/ui/section";
 import { Reveal } from "@/components/motion/reveal";
@@ -9,10 +11,14 @@ import { RoiScenarios } from "./_components/roi-scenarios";
 import { HowItWorksSection } from "./_components/how-it-works-section";
 import { FaqSection } from "./_components/faq-section";
 import { FinalCta } from "./_components/final-cta";
-import { RaisedCounter } from "@/components/marketing/raised-counter";
-import { LiveBuysFeed } from "@/components/marketing/live-buys-feed";
 
-export default function PresaleLandingPage() {
+export default async function PresaleLandingPage() {
+  // Membership tier from the access cookie — Early Believers (round 1) is
+  // reserved for tier-1 members (D-VIP/D-Pro levels 3-6).
+  const cookieStore = await cookies();
+  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
+  const accessTier = access?.tier ?? null;
+
   return (
     <>
       <Hero />
@@ -33,19 +39,7 @@ export default function PresaleLandingPage() {
           description="Tiers fill in order — the earlier you join, the lower your price."
         />
         <Reveal className="mt-12">
-          <TierCards />
-        </Reveal>
-      </Section>
-
-      <Section id="live" className="pt-0">
-        <SectionHeader
-          eyebrow="Live"
-          title="Join the momentum"
-          description="Real-time contributions from the community as the presale fills."
-        />
-        <Reveal className="mx-auto mt-12 grid max-w-2xl gap-6">
-          <RaisedCounter />
-          <LiveBuysFeed />
+          <TierCards accessTier={accessTier} />
         </Reveal>
       </Section>
 

@@ -9,8 +9,10 @@ import { TierCard } from "./tier-card";
  * Tier grid with live data from /api/presale/stats (raised + sequential status).
  * Falls back to a safe pre-launch state (zeros, all upcoming) before stats load
  * or when the DB isn't configured. Tier 1 is always the visual focal point.
+ * `accessTier` is the visitor's membership tier from the access cookie —
+ * Early Believers (round 1) is buyable only with tier 1.
  */
-export function TierCards() {
+export function TierCards({ accessTier = null }: { accessTier?: 1 | 2 | null }) {
   const stats = usePresaleStats();
 
   return (
@@ -26,6 +28,7 @@ export function TierCards() {
             raised={raised}
             status={status}
             featured={i === 0}
+            accessTier={accessTier}
           />
         );
       })}

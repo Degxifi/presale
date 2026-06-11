@@ -13,7 +13,6 @@ export type NavItem = { label: string; href: string };
 export const mainNav: NavItem[] = [
   { label: "How It Works", href: "/how-it-works" },
   { label: "Tokenomics", href: "/tokenomics" },
-  { label: "Leaderboard", href: "/leaderboard" },
   { label: "Quests", href: "/quests" },
   { label: "FAQ", href: "/faq" },
 ];

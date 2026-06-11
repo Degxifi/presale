@@ -30,15 +30,19 @@ export function TierCard({
   raised,
   status,
   featured = false,
+  accessTier = null,
 }: {
   tier: Tier;
   raised: number;
   status: TierStatus;
   featured?: boolean;
+  accessTier?: 1 | 2 | null;
 }) {
   const v = VIS[tier.id];
   const pct = (raised / tier.raiseTarget) * 100;
   const isOpen = status === "active";
+  // Early Believers (round 1) is reserved for tier-1 members (D-VIP/D-Pro 3-6)
+  const reserved = tier.id === 1 && accessTier !== 1;
   const label = statusLabel(tier, status);
 
   return (
@@ -98,11 +102,11 @@ export function TierCard({
       </dl>
 
       <div className="relative mt-6 grow content-end">
-        {isOpen ? (
+        {isOpen && !reserved ? (
           <BuyButton tier={tier} className="w-full" />
         ) : (
           <Button className="w-full" variant="secondary" disabled>
-            {label}
+            {isOpen ? "Reserved for D-VIP 3+ members" : label}
           </Button>
         )}
         <WalletTierCap tier={tier} />
