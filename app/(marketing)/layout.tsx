@@ -5,7 +5,7 @@ import { AnnouncementBanner } from "@/components/marketing/announcement-banner";
 
 /**
  * Public marketing site shell — wraps the landing page and every marketing
- * route (how-it-works, tokenomics, faq, leaderboard, quests, u/[ref]).
+ * route (how-it-works, tokenomics, faq, quests, u/[ref]).
  * Route group `(marketing)` is omitted from the URL.
  */
 export default function MarketingLayout({ children }: { children: ReactNode }) {
