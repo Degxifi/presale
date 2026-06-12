@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
 
 type Parts = {
   days: number;
@@ -35,7 +36,15 @@ function fmtDate(iso: string, timeZone?: string) {
  * unconfigured. Ticks every second; persists across reloads (time-based, not a
  * stored counter); shows an ended state at zero. Honest by construction.
  */
-export function Countdown({ target }: { target: string | null }) {
+export function Countdown({
+  target,
+  verb = "Ends",
+  doneLabel = "Presale ended",
+}: {
+  target: string | null;
+  verb?: string;
+  doneLabel?: string;
+}) {
   const [parts, setParts] = useState<Parts | null>(null);
 
   useEffect(() => {
@@ -59,7 +68,7 @@ export function Countdown({ target }: { target: string | null }) {
   if (parts?.done) {
     return (
       <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium">
-        <span className="size-2 rounded-full bg-danger" /> Presale ended
+        <span className="size-2 rounded-full bg-accent" /> {doneLabel}
       </div>
     );
   }
@@ -86,8 +95,47 @@ export function Countdown({ target }: { target: string | null }) {
         ))}
       </div>
       <p className="text-xs text-muted">
-        Ends {fmtDate(target, "UTC")} UTC · {fmtDate(target)} your time
+        {verb} {fmtDate(target, "UTC")} UTC · {fmtDate(target)} your time
       </p>
     </div>
+  );
+}
+
+/**
+ * Compact, inline countdown to a START time (e.g. "1d 23:45:12"), bold by
+ * default. Used on the Tier-1 card's "Opens at launch" state. Renders nothing
+ * once the target has passed (the tier flips to active on its own).
+ */
+export function LaunchCountdown({
+  target,
+  className,
+}: {
+  target: string | null;
+  className?: string;
+}) {
+  const [parts, setParts] = useState<Parts | null>(null);
+
+  useEffect(() => {
+    if (!target) return;
+    const t = new Date(target).getTime();
+    if (Number.isNaN(t)) return;
+    const tick = () => setParts(getParts(t));
+    const raf = requestAnimationFrame(tick);
+    const id = setInterval(tick, 1000);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearInterval(id);
+    };
+  }, [target]);
+
+  if (!target || !parts || parts.done) return null;
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const clock = `${pad(parts.hours)}:${pad(parts.minutes)}:${pad(parts.seconds)}`;
+  return (
+    <span className={cn("font-display font-bold tabular-nums", className)}>
+      {parts.days > 0 ? `${parts.days}d ` : ""}
+      {clock}
+    </span>
   );
 }

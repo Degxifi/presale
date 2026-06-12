@@ -1,9 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { BuyButton } from "@/components/presale/buy-button";
 import { WalletTierCap } from "@/components/marketing/wallet-tier-cap";
+import { LaunchCountdown } from "@/components/marketing/countdown";
 import { cn } from "@/lib/utils";
+import { isTierEligible } from "@/lib/presale";
 import { num, percent, tokenPrice, usd } from "@/lib/format";
 import type { Tier, TierId, TierStatus } from "@/types/presale";
 
@@ -17,12 +18,12 @@ const VIS: Record<
   3: { emoji: "🚀", bar: "bg-tier-3-ring", ring: "ring-tier-3-ring/50", tint: "from-tier-3" },
 };
 
-function statusLabel(tier: Tier, status: TierStatus): string {
+function statusLabel(status: TierStatus): string {
   if (status === "active") return "Open now";
-  if (status === "filled") return "Filled";
   if (status === "paused") return "Paused";
-  if (status === "closed" || status === "ended") return "Closed";
-  return tier.id === 1 ? "Opens at launch" : `Opens when Tier ${tier.id - 1} fills`;
+  if (status === "closed" || status === "ended" || status === "filled")
+    return "Closed";
+  return "Opens at launch"; // all tiers open at launch (time-based, no targets)
 }
 
 export function TierCard({
@@ -31,25 +32,29 @@ export function TierCard({
   status,
   featured = false,
   accessTier = null,
+  startsAt = null,
 }: {
   tier: Tier;
   raised: number;
   status: TierStatus;
   featured?: boolean;
   accessTier?: 1 | 2 | null;
+  startsAt?: string | null;
 }) {
   const v = VIS[tier.id];
-  const pct = (raised / tier.raiseTarget) * 100;
   const isOpen = status === "active";
-  // Early Believers (round 1) is reserved for tier-1 members (D-VIP/D-Pro 3-6)
-  const reserved = tier.id === 1 && accessTier !== 1;
-  const label = statusLabel(tier, status);
+  // Cumulative access: T1 → tier-1 members; T2 → any member; T3 → everyone.
+  const eligible = isTierEligible(tier.id, accessTier);
+  const label = statusLabel(status);
+  // All three tiers show the launch countdown until the presale opens.
+  const showCountdown = status === "upcoming" && Boolean(startsAt);
 
   return (
     <div
       className={cn(
         "relative flex flex-col overflow-hidden rounded-2xl border bg-surface p-6 transition-all duration-200 hover:-translate-y-1",
         featured ? cn("border-transparent ring-2", v.ring) : "border-border",
+        !eligible && "opacity-60",
       )}
     >
       {/* tier-tinted header wash */}
@@ -79,14 +84,9 @@ export function TierCard({
       </p>
 
       <div className="relative mt-5">
-        <div className="flex justify-between text-xs text-muted">
-          <span>{usd(raised)} raised</span>
-          <span>{usd(tier.raiseTarget)} target</span>
-        </div>
-        <Progress value={pct} className="mt-2" indicatorClassName={v.bar} />
-        <p className="mt-1.5 text-xs text-muted">
-          {num(tier.tokensAvailable)} $DEGX · {percent(tier.roiAtGraduation)} at
-          graduation
+        <p className="text-xs text-muted">
+          {usd(raised)} raised · {num(tier.tokensAvailable)} $DEGX ·{" "}
+          {percent(tier.roiAtGraduation)} at graduation
         </p>
       </div>
 
@@ -102,12 +102,21 @@ export function TierCard({
       </dl>
 
       <div className="relative mt-6 grow content-end">
-        {isOpen && !reserved ? (
+        {isOpen && eligible ? (
           <BuyButton tier={tier} className="w-full" />
         ) : (
           <Button className="w-full" variant="secondary" disabled>
-            {isOpen ? "Reserved for D-VIP 3+ members" : label}
+            {isOpen ? "In progress" : label}
           </Button>
+        )}
+        {showCountdown && (
+          <p className="mt-2 text-center text-sm text-muted">
+            Opens in{" "}
+            <LaunchCountdown
+              target={startsAt}
+              className="text-base text-foreground"
+            />
+          </p>
         )}
         <WalletTierCap tier={tier} />
       </div>

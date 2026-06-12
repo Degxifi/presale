@@ -3,7 +3,13 @@ import { cookies } from "next/headers";
 import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access";
 import { PRESALE_WALLET_ADDRESS, isPresaleConfigured } from "@/lib/solana/config";
 import { verifyUsdcContribution } from "@/lib/solana/verify";
-import { computeTierProgress, getPresalePhase, getTier } from "@/lib/presale";
+import {
+  computeTierProgress,
+  getPresalePhase,
+  getTier,
+  isTierEligible,
+  resolvePresaleStart,
+} from "@/lib/presale";
 import {
   getRawStats,
   getSettings,
@@ -33,16 +39,11 @@ export async function POST(request: Request) {
     );
   }
 
-  // Members-only: the signed access cookie is required to record a buy
-  // (defense in depth — middleware already blocks /api without it).
+  // The site is public — anyone can buy the Public Presale. The signed access
+  // cookie (set from a Degxifi dashboard link) only UNLOCKS the earlier rounds;
+  // read it here and enforce per-tier below.
   const cookieStore = await cookies();
   const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
-  if (!access) {
-    return NextResponse.json(
-      { error: "Presale access required. Open the presale from your Degxifi dashboard." },
-      { status: 401 },
-    );
-  }
 
   let body: unknown;
   try {
@@ -78,9 +79,7 @@ export async function POST(request: Request) {
     getRawStats(),
     getSettings(),
   ]);
-  const phase = getPresalePhase(
-    settings.presaleStart ?? process.env.NEXT_PUBLIC_PRESALE_START ?? null,
-  );
+  const phase = getPresalePhase(resolvePresaleStart(settings.presaleStart));
   const progress = computeTierProgress(raisedByTier, phase, settings.tierOverrides);
   const tierStatus = progress.find((p) => p.tierId === t.id)?.status;
   if (tierStatus !== "active") {
@@ -89,9 +88,21 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  if (t.id === 1 && access.tier !== 1) {
+  // Rounds 1 & 2 require a Degxifi member cookie; Public (3) is open to anyone.
+  if ((t.id === 1 || t.id === 2) && !access) {
     return NextResponse.json(
-      { error: "Early Believers is reserved for D-VIP/D-Pro 3+ members." },
+      {
+        error:
+          "This round is for Degxifi members — open the presale from your dashboard, or wait for the Public Presale.",
+      },
+      { status: 401 },
+    );
+  }
+  // Cumulative eligibility: Early Believers → tier-1 only; Early Supporters →
+  // any member; Public → anyone. (access is guaranteed for tiers 1/2 above.)
+  if (!isTierEligible(t.id, access?.tier ?? null)) {
+    return NextResponse.json(
+      { error: "Early Believers is reserved for D-VIP/D-Pro 3-6 members." },
       { status: 403 },
     );
   }

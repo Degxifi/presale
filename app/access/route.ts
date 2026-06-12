@@ -8,8 +8,9 @@ import {
 
 /**
  * Entry point for signed links from the Degxifi app:
- * `/access?token=…` → verify → set the access cookie → home.
- * Invalid or expired tokens land on /restricted.
+ * `/access?token=…` → verify → set the access cookie → home. The cookie only
+ * UNLOCKS the early rounds; the site itself is public, so invalid or expired
+ * tokens just land on home (no longer gated to /restricted).
  */
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("token");
@@ -19,7 +20,7 @@ export async function GET(request: NextRequest) {
   dest.search = "";
 
   if (!payload) {
-    dest.pathname = "/restricted";
+    dest.pathname = "/";
     return NextResponse.redirect(dest);
   }
 

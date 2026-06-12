@@ -3,8 +3,14 @@
 import { Countdown } from "@/components/marketing/countdown";
 import { usePresaleStats } from "@/hooks/use-presale-stats";
 
-/** Countdown fed by live stats (admin-set start → end), with env fallback. */
+/** Countdown to the LAUNCH (all tiers open at once); shows "live" once it passes. */
 export function PresaleCountdown() {
   const stats = usePresaleStats();
-  return <Countdown target={stats?.endsAt ?? null} />;
+  return (
+    <Countdown
+      target={stats?.startsAt ?? null}
+      verb="Opens"
+      doneLabel="Presale is live"
+    />
+  );
 }

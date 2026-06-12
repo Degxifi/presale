@@ -29,6 +29,7 @@ export function TierCards({ accessTier = null }: { accessTier?: 1 | 2 | null }) 
             status={status}
             featured={i === 0}
             accessTier={accessTier}
+            startsAt={stats?.startsAt ?? null}
           />
         );
       })}
