@@ -2,7 +2,6 @@
   "name": "presale",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@10.34.3",
   "engines": {
     "node": ">=20.9.0"
   },
@@ -24,7 +23,6 @@
     "@solana/web3.js": "^1.98.4",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
-    "@vercel/functions": "^3.6.3",
     "better-auth": "^1.6.15",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
@@ -48,5 +46,6 @@
     "eslint-config-next": "16.2.7",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "trustedDependencies": ["sharp", "esbuild", "unrs-resolver"]
 }
