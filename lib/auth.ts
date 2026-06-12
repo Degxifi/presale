@@ -8,8 +8,9 @@ import * as authSchema from "@/lib/db/auth-schema";
 /**
  * Better Auth (email + password) over Drizzle/Postgres. Roles live in the DB
  * (`user.role`), so there can be multiple admins. The first registered user
- * becomes the founding admin; everyone else starts as 'user' until an existing
- * admin promotes them (see the admin dashboard / /api/admin/users).
+ * becomes the founding admin; everyone else starts as 'user'. There is
+ * INTENTIONALLY no in-app role-change endpoint — promoting another admin is
+ * done directly in the database: `UPDATE "user" SET role='admin' WHERE email=…`.
  * `null` when the DB isn't configured (auth then 503s).
  */
 export const auth = db
@@ -34,7 +35,7 @@ export const auth = db
           create: {
             before: async (newUser) => {
               // First user to register becomes the founding admin; promote
-              // others from the admin dashboard (DB-stored roles).
+              // others via a direct DB update (roles are DB-stored).
               let role = "user";
               if (db) {
                 const [row] = await db

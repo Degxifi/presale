@@ -22,6 +22,13 @@
       "when": 1781101560693,
       "tag": "0002_petite_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781273011902,
+      "tag": "0003_little_krista_starr",
+      "breakpoints": true
     }
   ]
 }

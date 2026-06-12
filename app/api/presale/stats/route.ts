@@ -6,6 +6,7 @@ import {
   resolvePresaleStart,
 } from "@/lib/presale";
 import { getRawStats, getSettings } from "@/lib/db/queries";
+import { shortWallet } from "@/lib/format";
 import type { PresaleStats } from "@/types/presale";
 
 export const dynamic = "force-dynamic"; // always live
@@ -29,7 +30,13 @@ export async function GET() {
     endsAt,
     announcement: settings.announcement,
     tiers: computeTierProgress(raisedByTier, phase, settings.tierOverrides),
-    recentBuys: recent,
+    // Public payload: display-form wallet + truncated sig (the feed only needs
+    // a unique key) — don't make the contributor list trivially scrapeable.
+    recentBuys: recent.map((r) => ({
+      ...r,
+      wallet: shortWallet(r.wallet),
+      txSig: r.txSig.slice(0, 16),
+    })),
   };
 
   return NextResponse.json(stats, { headers: { "cache-control": "no-store" } });

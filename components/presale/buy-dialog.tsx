@@ -18,6 +18,40 @@ import type { Tier, TierId } from "@/types/presale";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
+/**
+ * Record a confirmed payment with retries — the on-chain tx is the source of
+ * truth, but this row is what distribution/caps are built from, so a silent
+ * drop is the worst failure. Backoff (2s/8s/30s) outlasts a 60s rate-limit
+ * window and RPC propagation lag. Returns null when cleanly recorded, else
+ * the warning text to show on the success screen.
+ */
+async function recordWithRetry(
+  wallet: string,
+  tier: TierId,
+  txSig: string,
+): Promise<string | null> {
+  let lastError = "recording request failed";
+  for (const delay of [0, 2_000, 8_000, 30_000]) {
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    try {
+      const res = await fetch("/api/contributions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ wallet, tier, txSig }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        warning?: string;
+      } | null;
+      if (res.ok) return data?.warning ?? null; // recorded (maybe flagged)
+      lastError = data?.error ?? `HTTP ${res.status}`;
+    } catch {
+      lastError = "network error";
+    }
+  }
+  return `Your payment is confirmed on-chain, but we couldn't record it automatically (${lastError}). Save the transaction link above and contact support so your allocation is counted.`;
+}
+
 /** A wallet's confirmed raised amount in a tier (for cumulative cap checks). */
 async function getWalletTierRaised(wallet: string, tier: TierId): Promise<number> {
   try {
@@ -45,6 +79,7 @@ export function BuyDialog({
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [sig, setSig] = useState<string | null>(null);
+  const [recordWarning, setRecordWarning] = useState<string | null>(null);
 
   const value = Number(amount);
   const valid =
@@ -56,6 +91,7 @@ export function BuyDialog({
     setStatus("idle");
     setError(null);
     setSig(null);
+    setRecordWarning(null);
     onClose();
   };
 
@@ -141,15 +177,14 @@ export function BuyDialog({
       const signature = await sendTransaction(tx, connection);
       await confirmSignature(connection, signature);
 
-      // Record off-chain (best-effort — the on-chain tx is the source of truth).
-      void fetch("/api/contributions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ wallet: owner, tier: tier.id, txSig: signature }),
-      }).catch(() => {});
-
       setSig(signature);
       setStatus("success");
+
+      // Record off-chain with retries; if it still fails, the success screen
+      // shows a save-your-transaction warning instead of failing silently.
+      void recordWithRetry(owner, tier.id, signature).then((failure) => {
+        if (failure) setRecordWarning(failure);
+      });
     } catch (e) {
       setStatus("error");
       const message = e instanceof Error ? e.message : "";
@@ -189,6 +224,11 @@ export function BuyDialog({
             Your $DEGX is distributed to this wallet after the presale graduates at
             a $600K market cap. Contributions are non-refundable.
           </p>
+          {recordWarning && (
+            <p className="rounded-xl border border-border bg-surface-2 p-3 text-left text-xs leading-relaxed text-danger">
+              {recordWarning}
+            </p>
+          )}
           <Button variant="secondary" className="w-full" onClick={close}>
             Done
           </Button>

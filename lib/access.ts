@@ -23,6 +23,9 @@ export type AccessPayload = {
   tier: 1 | 2;
   iat: number;
   exp: number;
+  /** Set on cookie values only. Entry tokens (backend-minted) never carry it,
+   * so /access can refuse to re-mint a cookie from another cookie. */
+  typ?: "cookie";
 };
 
 const getSecret = () => process.env.PRESALE_ACCESS_SECRET;
@@ -111,6 +114,7 @@ export async function mintCookieToken(payload: AccessPayload): Promise<string> {
     tier: payload.tier,
     iat: now,
     exp: now + ACCESS_COOKIE_MAX_AGE,
+    typ: "cookie",
   };
   const payloadB64 = b64urlEncode(enc.encode(JSON.stringify(cookiePayload)));
   return `${payloadB64}.${await signSegment(payloadB64, secret)}`;

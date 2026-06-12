@@ -31,12 +31,22 @@ const DEFAULT_SETTINGS: AppSettings = {
   tierOverrides: {},
 };
 
+/** Postgres unique-violation (SQLSTATE 23505), however the driver wraps it. */
+function isUniqueViolation(e: unknown): boolean {
+  for (let cur = e; cur instanceof Error; cur = cur.cause) {
+    if ((cur as { code?: string }).code === "23505") return true;
+  }
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
+  return msg.includes("duplicate key") || msg.includes("unique");
+}
+
 /** Insert a confirmed contribution. Idempotent on tx_sig (re-submits are no-ops). */
 export async function recordContribution(input: {
   wallet: string;
   tier: TierId;
   amount: number;
   txSig: string;
+  memberUid?: string | null;
 }): Promise<void> {
   if (!db) throw new Error("Database is not configured.");
   try {
@@ -45,13 +55,36 @@ export async function recordContribution(input: {
       tier: input.tier,
       amountUsdc: String(input.amount), // numeric column takes a string
       txSig: input.txSig,
+      memberUid: input.memberUid ?? null,
       status: "confirmed",
     });
   } catch (e) {
-    const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
-    if (msg.includes("duplicate key") || msg.includes("unique")) return;
+    if (isUniqueViolation(e)) return;
     throw e;
   }
+}
+
+/**
+ * Post-insert cap re-check: the pre-insert cap check is read-then-insert, so
+ * concurrent buys from one wallet can race past it. If the wallet's confirmed
+ * total for the tier now exceeds the cap, flip THIS row to 'pending' (pending
+ * rows are excluded from totals and cap sums) so it's flagged for manual
+ * review instead of silently busting the cap. Returns true if demoted.
+ */
+export async function demoteContributionIfOverCap(
+  txSig: string,
+  wallet: string,
+  tier: TierId,
+  maxBuy: number,
+): Promise<boolean> {
+  if (!db) return false;
+  const raised = await getWalletRaisedByTier(wallet);
+  if (raised[tier] <= maxBuy + 0.01) return false;
+  await db
+    .update(contributions)
+    .set({ status: "pending" })
+    .where(eq(contributions.txSig, txSig));
+  return true;
 }
 
 /** Raised-per-tier, participant count, and recent buys. Empty when unconfigured. */

@@ -7,18 +7,29 @@ export function AnnouncementEditor({ initial }: { initial: string | null }) {
   const [value, setValue] = useState(initial ?? "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const save = async (announcement: string | null) => {
     setSaving(true);
     setSaved(false);
-    await fetch("/api/admin/settings", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ announcement }),
-    });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ announcement }),
+      });
+      if (!res.ok) {
+        setError(`Save failed (${res.status}) — check your session and retry.`);
+        return;
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch {
+      setError("Save failed (network error) — retry.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -47,6 +58,7 @@ export function AnnouncementEditor({ initial }: { initial: string | null }) {
           Clear
         </Button>
       </div>
+      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
     </div>
   );
 }

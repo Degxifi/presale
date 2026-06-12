@@ -108,7 +108,7 @@ export default async function AdminPage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <StartEditor initial={settings.presaleStart} />
+          <StartEditor initial={settings.presaleStart} effective={startsAt} />
           <AnnouncementEditor initial={settings.announcement} />
         </div>
         <TierControls initial={settings.tierOverrides} />

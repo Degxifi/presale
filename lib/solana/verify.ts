@@ -1,5 +1,5 @@
 import { Connection, type TokenBalance } from "@solana/web3.js";
-import { USDC_MINT_ADDRESS } from "./config";
+import { USDC_DECIMALS, USDC_MINT_ADDRESS } from "./config";
 
 /** Server-only RPC (with provider key). Never imported by client code. */
 const RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
@@ -32,14 +32,18 @@ export async function verifyUsdcContribution(
     (list ?? []).find(
       (b) => b.mint === USDC_MINT_ADDRESS && b.owner === recipientWallet,
     );
-  const pre = Number(
-    recipientUsdc(tx.meta?.preTokenBalances)?.uiTokenAmount.uiAmount ?? 0,
+  // Integer math on raw base units — `uiAmount` is a float and can lose
+  // precision; the raw `amount` string is exact.
+  const pre = BigInt(
+    recipientUsdc(tx.meta?.preTokenBalances)?.uiTokenAmount.amount ?? "0",
   );
-  const post = Number(
-    recipientUsdc(tx.meta?.postTokenBalances)?.uiTokenAmount.uiAmount ?? 0,
+  const post = BigInt(
+    recipientUsdc(tx.meta?.postTokenBalances)?.uiTokenAmount.amount ?? "0",
   );
 
-  const amount = post - pre;
-  if (amount <= 0) throw new Error("No USDC was credited to the presale wallet.");
-  return { amount };
+  const delta = post - pre;
+  if (delta <= BigInt(0))
+    throw new Error("No USDC was credited to the presale wallet.");
+  // 6 decimals: Number stays exact far beyond any realistic presale amount.
+  return { amount: Number(delta) / 10 ** USDC_DECIMALS };
 }
