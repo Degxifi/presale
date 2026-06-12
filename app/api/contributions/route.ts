@@ -73,8 +73,8 @@ export async function POST(request: Request) {
 
   // Enforce what the tier cards promise, server-side — checked BEFORE the
   // on-chain lookup so out-of-band submissions fail fast: the tier must be
-  // OPEN (launch time + sequential fill + admin overrides), and round 1
-  // (Early Believers) is reserved for tier-1 members (D-VIP/D-Pro 3-6).
+  // OPEN (launch time + admin overrides), and round 1 (Early Believers) is
+  // reserved for tier-1 members (D-VIP/D-Pro 3-6).
   const [{ raisedByTier }, settings] = await Promise.all([
     getRawStats(),
     getSettings(),
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "This round is for Degxifi members — open the presale from your dashboard, or wait for the Public Presale.",
+          "This round is for Degxifi members — open the presale from your dashboard, or buy in the Public Presale (open to everyone).",
       },
       { status: 401 },
     );

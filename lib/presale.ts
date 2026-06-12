@@ -65,9 +65,15 @@ export const PRESALE_START_DEFAULT = "2026-06-13T10:00:00+01:00";
  * Resolve the presale start ISO: admin DB setting → NEXT_PUBLIC_PRESALE_START →
  * built-in default. Always returns a value (never null), so the timer/phase are
  * guaranteed; the admin can still override the date from the dashboard.
+ * Malformed/whitespace candidates are skipped (never returned), so callers can
+ * safely `new Date(...)` the result.
  */
 export function resolvePresaleStart(dbStart: string | null | undefined): string {
-  return dbStart || process.env.NEXT_PUBLIC_PRESALE_START || PRESALE_START_DEFAULT;
+  for (const candidate of [dbStart, process.env.NEXT_PUBLIC_PRESALE_START]) {
+    const v = candidate?.trim();
+    if (v && !Number.isNaN(new Date(v).getTime())) return v;
+  }
+  return PRESALE_START_DEFAULT;
 }
 
 /** Presale end = start + duration (default 7 days). */

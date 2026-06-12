@@ -91,8 +91,8 @@ export function BuyDialog({
           setStatus("idle");
           setError(
             tier.id === 1
-              ? "Early Believers is reserved for D-VIP/D-Pro 3-6 members. You can join the Public Presale when it opens."
-              : "Early Supporters is for Degxifi members. Open the presale from your dashboard, or join the Public Presale.",
+              ? "Early Believers is reserved for D-VIP/D-Pro 3-6 members. Anyone can buy in the Public Presale instead."
+              : "Early Supporters is for Degxifi members. Open the presale from your dashboard, or buy in the Public Presale instead.",
           );
           return;
         }
@@ -109,7 +109,7 @@ export function BuyDialog({
         return;
       }
 
-      // Tier must still be open (launch time + sequential fill) before funds
+      // Tier must still be open (launch time + admin overrides) before funds
       // move — the server re-checks before recording, but failing here saves
       // the user from sending USDC that can't be allocated.
       try {
@@ -121,7 +121,7 @@ export function BuyDialog({
           const live = stats.tiers?.find((p) => p.tierId === tier.id)?.status;
           if (live && live !== "active") {
             setStatus("idle");
-            setError("This tier isn't open right now — it may have just filled.");
+            setError("This tier isn't open right now.");
             return;
           }
         }
