@@ -114,7 +114,7 @@ export function TierCard({
         ) : (
           <Button className="w-full" variant="secondary" disabled>
             {isOpen
-              ? "In progress"
+              ? "Not Eligible"
               : status === "upcoming"
                 ? "Buy $DEGX"
                 : label}
