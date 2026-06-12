@@ -33,7 +33,7 @@ export default function TokenomicsPage() {
         <div className="mt-12">
           <StatsStrip />
         </div>
-        <div className="mx-auto mt-8 max-w-3xl overflow-hidden rounded-2xl border border-border">
+        <div className="mx-auto mt-8 max-w-3xl overflow-x-auto rounded-2xl border border-border">
           <table className="w-full text-sm">
             <tbody className="divide-y divide-border">
               {supplyRows.map((r) => (
@@ -51,8 +51,8 @@ export default function TokenomicsPage() {
 
       <Section className="pt-0">
         <SectionHeader eyebrow="Tier Allocation" title="Three tiers, 250M $DEGX" />
-        <div className="mx-auto mt-12 max-w-3xl overflow-hidden rounded-2xl border border-border">
-          <table className="w-full text-sm">
+        <div className="mx-auto mt-12 max-w-3xl overflow-x-auto rounded-2xl border border-border">
+          <table className="w-full min-w-[460px] text-sm">
             <thead className="bg-surface-2 text-left text-muted">
               <tr>
                 <th className="px-4 py-3 font-medium">Tier</th>

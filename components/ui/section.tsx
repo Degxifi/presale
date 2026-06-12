@@ -8,7 +8,7 @@ export function Section({
   ...props
 }: HTMLAttributes<HTMLElement>) {
   return (
-    <section className={cn("py-20 sm:py-28", className)} {...props}>
+    <section className={cn("py-16 sm:py-28", className)} {...props}>
       <Container>{children}</Container>
     </section>
   );
