@@ -11,6 +11,7 @@ import { num, shortWallet, usd } from "@/lib/format";
 import { PRESALE_WALLET_ADDRESS, isPresaleConfigured } from "@/lib/solana/config";
 import { buttonVariants } from "@/components/ui/button";
 import { AdminShell } from "./_components/admin-shell";
+import { AutoRefresh } from "./_components/auto-refresh";
 import { AdminLogin } from "./_components/admin-login";
 import { AdminUsers } from "./_components/admin-users";
 import { AnnouncementEditor } from "./_components/announcement-editor";
@@ -62,6 +63,8 @@ export default async function AdminPage() {
   return (
     <AdminShell email={session.user.email}>
       <div className="space-y-8">
+        {/* Live: re-fetches the server-rendered presale data on an interval. */}
+        <AutoRefresh />
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {summary.map((s) => (
             <div key={s.label} className="rounded-2xl border border-border bg-surface p-5">
@@ -108,7 +111,7 @@ export default async function AdminPage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <StartEditor initial={settings.presaleStart} />
+          <StartEditor initial={settings.presaleStart} effective={startsAt} />
           <AnnouncementEditor initial={settings.announcement} />
         </div>
         <TierControls initial={settings.tierOverrides} />

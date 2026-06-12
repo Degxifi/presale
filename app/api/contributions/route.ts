@@ -11,6 +11,7 @@ import {
   resolvePresaleStart,
 } from "@/lib/presale";
 import {
+  demoteContributionIfOverCap,
   getRawStats,
   getSettings,
   getWalletRaisedByTier,
@@ -82,7 +83,11 @@ export async function POST(request: Request) {
   const phase = getPresalePhase(resolvePresaleStart(settings.presaleStart));
   const progress = computeTierProgress(raisedByTier, phase, settings.tierOverrides);
   const tierStatus = progress.find((p) => p.tierId === t.id)?.status;
-  if (tierStatus !== "active") {
+  // "active" accepts new buys. "paused" still RECORDS: by the time this runs
+  // the USDC has already moved on-chain, and silently dropping the row (the
+  // payment can't be dropped) is the worse failure — an admin pause mid-flight
+  // must not erase a paid contribution. Pre-launch/closed/ended stay rejected.
+  if (tierStatus !== "active" && tierStatus !== "paused") {
     return NextResponse.json(
       { error: `${t.name} is not open for contributions right now.` },
       { status: 400 },
@@ -130,7 +135,30 @@ export async function POST(request: Request) {
       );
     }
 
-    await recordContribution({ wallet, tier: tier as TierId, amount, txSig });
+    await recordContribution({
+      wallet,
+      tier: tier as TierId,
+      amount,
+      txSig,
+      memberUid: access?.uid ?? null, // audit trail for shared-link abuse
+    });
+
+    // The pre-insert cap check above is read-then-insert, so concurrent buys
+    // can race past it — re-check now and flag the row for review if the
+    // wallet busted the cap. 200 (not an error): the payment IS recorded.
+    const overCap = await demoteContributionIfOverCap(
+      txSig,
+      wallet,
+      t.id,
+      t.maxBuy,
+    );
+    if (overCap) {
+      return NextResponse.json({
+        ok: true,
+        amount,
+        warning: `This payment put the wallet over the ${t.name} per-wallet cap, so it was flagged for manual review. Contact support about transaction ${txSig}.`,
+      });
+    }
     return NextResponse.json({ ok: true, amount });
   } catch (e) {
     return NextResponse.json(

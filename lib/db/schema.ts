@@ -36,6 +36,9 @@ export const contributions = pgTable(
     tier: smallint("tier").notNull(),
     amountUsdc: numeric("amount_usdc", { precision: 20, scale: 6 }).notNull(),
     txSig: text("tx_sig").notNull().unique(), // on-chain signature (idempotency)
+    // Degxifi member uid from the access cookie (tiers 1-2) — audit trail for
+    // shared-link abuse. Null for public (tier 3) buys.
+    memberUid: text("member_uid"),
     status: text("status").notNull().default("confirmed"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

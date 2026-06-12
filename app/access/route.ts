@@ -19,7 +19,10 @@ export async function GET(request: NextRequest) {
   const dest = request.nextUrl.clone();
   dest.search = "";
 
-  if (!payload) {
+  // Only backend-minted ENTRY tokens may be exchanged here — a cookie value
+  // (typ: "cookie") pasted back into /access must not re-mint a fresh cookie,
+  // or access would be infinitely renewable/transferable.
+  if (!payload || payload.typ === "cookie") {
     dest.pathname = "/";
     return NextResponse.redirect(dest);
   }

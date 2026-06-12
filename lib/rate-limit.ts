@@ -13,20 +13,42 @@ import { Redis } from "@upstash/redis";
 const url = process.env.UPSTASH_REDIS_REST_URL;
 const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-const limiter =
-  url && token
+const redis = url && token ? new Redis({ url, token }) : null;
+
+// A missing env var in production must be visible, not a silent no-op — this
+// shows up once in the deploy logs.
+if (!redis && process.env.NODE_ENV === "production") {
+  console.warn(
+    "[rate-limit] UPSTASH_REDIS_REST_URL/TOKEN are not set — rate limiting is DISABLED.",
+  );
+}
+
+const makeLimiter = (requestsPerMinute: number) =>
+  redis
     ? new Ratelimit({
-        redis: new Redis({ url, token }),
-        limiter: Ratelimit.slidingWindow(10, "60 s"),
+        redis,
+        limiter: Ratelimit.slidingWindow(requestsPerMinute, "60 s"),
         prefix: "degx:rl",
         analytics: false,
       })
     : null;
 
-export const isRateLimitConfigured = () => Boolean(limiter);
+const LIMITERS = {
+  /** Write/verify endpoints (contributions): 10 req/min per IP. */
+  strict: makeLimiter(10),
+  /** The RPC proxy: a single buy flow makes a dozen calls (blockhash, send,
+   * status polls), so this is looser — 60 req/min per IP. */
+  rpc: makeLimiter(60),
+};
+
+export const isRateLimitConfigured = () => Boolean(redis);
 
 /** True if allowed; false if the key exceeded the window. Fails open on errors. */
-export async function checkRateLimit(key: string): Promise<boolean> {
+export async function checkRateLimit(
+  key: string,
+  kind: keyof typeof LIMITERS = "strict",
+): Promise<boolean> {
+  const limiter = LIMITERS[kind];
   if (!limiter) return true;
   try {
     const { success } = await limiter.limit(key);
@@ -37,13 +59,18 @@ export async function checkRateLimit(key: string): Promise<boolean> {
 }
 
 /**
- * Best-effort client IP for rate-limit keys. Reads the standard forwarded
- * headers that any reverse proxy sets — Traefik (self-hosted / Dokploy) and
- * Vercel both populate X-Forwarded-For — so it's host-agnostic. Falls back to
+ * Best-effort client IP for rate-limit keys. Uses the RIGHTMOST
+ * X-Forwarded-For entry: that's the one appended by OUR reverse proxy
+ * (Traefik on Dokploy; Vercel likewise), so a client-supplied header can't
+ * spoof it — the leftmost entry is attacker-controlled. Falls back to
  * "anonymous" when the IP is unknown; the limiter fails open anyway.
  */
 export function clientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
-  const first = forwarded?.split(",")[0]?.trim();
-  return first || request.headers.get("x-real-ip")?.trim() || "anonymous";
+  const last = forwarded
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .at(-1);
+  return last || request.headers.get("x-real-ip")?.trim() || "anonymous";
 }
