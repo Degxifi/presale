@@ -7,7 +7,6 @@ import { Hero } from "./_components/hero";
 import { StatsStrip } from "./_components/stats-strip";
 import { TrustBar } from "./_components/trust-bar";
 import { TierCards } from "./_components/tier-cards";
-import { RoiScenarios } from "./_components/roi-scenarios";
 import { HowItWorksSection } from "./_components/how-it-works-section";
 import { FaqSection } from "./_components/faq-section";
 import { FinalCta } from "./_components/final-cta";
@@ -40,17 +39,6 @@ export default async function PresaleLandingPage() {
         />
         <Reveal className="mt-12">
           <TierCards accessTier={accessTier} />
-        </Reveal>
-      </Section>
-
-      <Section id="returns" className="pt-0">
-        <SectionHeader
-          eyebrow="Profit Scenarios"
-          title="What you could make"
-          description="Illustrative ROI by entry tier at different market caps — conditional on reaching each cap, not guaranteed."
-        />
-        <Reveal className="mx-auto mt-12 max-w-3xl">
-          <RoiScenarios />
         </Reveal>
       </Section>
 

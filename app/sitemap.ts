@@ -8,7 +8,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/how-it-works",
     "/tokenomics",
     "/faq",
-    "/quests",
   ];
   return routes.map((route) => ({
     url: `${base}${route}`,

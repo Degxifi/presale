@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PRESALE, TIERS, TOKEN } from "@/lib/constants";
+import { TIERS, TOKEN } from "@/lib/constants";
 import { tokenPrice, usdCompact } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -46,11 +46,6 @@ export function Hero() {
             How it works
           </Link>
         </div>
-
-        <p className="mt-6 text-sm text-muted">
-          {TOKEN.quoteCurrency} on Solana · {PRESALE.durationDays}-day presale ·
-          non-refundable · ROI shown is conditional, not guaranteed
-        </p>
       </Container>
     </section>
   );
