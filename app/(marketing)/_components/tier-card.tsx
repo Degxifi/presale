@@ -113,7 +113,11 @@ export function TierCard({
           <BuyButton tier={tier} className="w-full" />
         ) : (
           <Button className="w-full" variant="secondary" disabled>
-            {isOpen ? "In progress" : label}
+            {isOpen
+              ? "In progress"
+              : status === "upcoming"
+                ? "Buy $DEGX"
+                : label}
           </Button>
         )}
         {showCountdown && (
