@@ -1,10 +1,10 @@
-import { PRESALE, TIERS, TOKEN } from "@/lib/constants";
-import { numCompact, tokenPrice, usdCompact } from "@/lib/format";
+import { PRESALE, TOKEN } from "@/lib/constants";
+import { numCompact, usdCompact } from "@/lib/format";
 
 /** Static, factual presale stats (not live counters) — safe pre-launch. */
 export function StatsStrip() {
   const stats = [
-    { label: "Lowest price", value: tokenPrice(TIERS[0].price) },
+    { label: "Raise target", value: usdCompact(PRESALE.totalRaiseTarget) },
     {
       label: "Presale allocation",
       value: `${numCompact(TOKEN.presaleAllocation)} $DEGX`,

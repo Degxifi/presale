@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { BuyButton } from "@/components/presale/buy-button";
 import { WalletTierCap } from "@/components/marketing/wallet-tier-cap";
 import { LaunchCountdown } from "@/components/marketing/countdown";
@@ -42,6 +43,7 @@ export function TierCard({
   startsAt?: string | null;
 }) {
   const v = VIS[tier.id];
+  const pct = (raised / tier.raiseTarget) * 100;
   const isOpen = status === "active";
   // Cumulative access: T1 → tier-1 members; T2 → any member; T3 → everyone.
   const eligible = isTierEligible(tier.id, accessTier);
@@ -84,9 +86,14 @@ export function TierCard({
       </p>
 
       <div className="relative mt-5">
-        <p className="text-xs text-muted">
-          {usd(raised)} raised · {num(tier.tokensAvailable)} $DEGX ·{" "}
-          {percent(tier.roiAtGraduation)} at graduation
+        <div className="flex justify-between text-xs text-muted">
+          <span>{usd(raised)} raised</span>
+          <span>{usd(tier.raiseTarget)} target</span>
+        </div>
+        <Progress value={pct} className="mt-2" indicatorClassName={v.bar} />
+        <p className="mt-1.5 text-xs text-muted">
+          {num(tier.tokensAvailable)} $DEGX · {percent(tier.roiAtGraduation)} at
+          graduation
         </p>
       </div>
 
