@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import { mainNav } from "@/config/site";
 import { Container } from "@/components/ui/container";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
-import { ConnectWalletButton } from "@/components/wallet/connect-wallet-button";
 
 export function SiteHeader() {
   const pathname = usePathname();
@@ -66,9 +65,6 @@ export function SiteHeader() {
         {/* Right cluster */}
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <div className="hidden sm:block">
-            <ConnectWalletButton />
-          </div>
           <button
             type="button"
             aria-label="Toggle menu"
@@ -107,7 +103,6 @@ export function SiteHeader() {
                   {item.label}
                 </Link>
               ))}
-              <ConnectWalletButton className="mt-2 w-full" />
             </Container>
           </motion.nav>
         )}

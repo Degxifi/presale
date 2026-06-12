@@ -1,6 +1,12 @@
 import { getSession, isAdmin, isAdminConfigured } from "@/lib/admin/guard";
 import { getAllContributions, getRawStats, getSettings } from "@/lib/db/queries";
-import { computeTierProgress, degxForUsdc, getPresalePhase, getTier } from "@/lib/presale";
+import {
+  computeTierProgress,
+  degxForUsdc,
+  getPresalePhase,
+  getTier,
+  resolvePresaleStart,
+} from "@/lib/presale";
 import { num, shortWallet, usd } from "@/lib/format";
 import { PRESALE_WALLET_ADDRESS, isPresaleConfigured } from "@/lib/solana/config";
 import { buttonVariants } from "@/components/ui/button";
@@ -40,8 +46,7 @@ export default async function AdminPage() {
     getSettings(),
     getAllContributions(),
   ]);
-  const startsAt =
-    settings.presaleStart ?? process.env.NEXT_PUBLIC_PRESALE_START ?? null;
+  const startsAt = resolvePresaleStart(settings.presaleStart);
   const phase = getPresalePhase(startsAt);
   const tiers = computeTierProgress(raisedByTier, phase, settings.tierOverrides);
   const totalRaised = raisedByTier[1] + raisedByTier[2] + raisedByTier[3];

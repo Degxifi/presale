@@ -38,6 +38,44 @@ export function getTier(id: TierId) {
   return tier;
 }
 
+/**
+ * Whether a visitor with the given access tier may buy a presale tier
+ * (CUMULATIVE access): Early Believers (1) → tier-1 members (D-VIP/D-Pro 3-6)
+ * only; Early Supporters (2) → any member (tier 1 or 2); Public (3) → everyone,
+ * including non-members (accessTier null). Single source of truth shared by the
+ * card UI, the buy dialog, and the server route so they can't drift.
+ */
+export function isTierEligible(
+  tierId: TierId,
+  accessTier: 1 | 2 | null | undefined,
+): boolean {
+  if (tierId === 3) return true;
+  if (tierId === 2) return accessTier === 1 || accessTier === 2;
+  return accessTier === 1;
+}
+
+/**
+ * Built-in launch instant (Sat 2026-06-13 10:00 WAT) — matches the Degxifi app
+ * banner. Used as the final fallback so the presale launches on schedule even if
+ * the env var / admin setting is never configured.
+ */
+export const PRESALE_START_DEFAULT = "2026-06-13T10:00:00+01:00";
+
+/**
+ * Resolve the presale start ISO: admin DB setting → NEXT_PUBLIC_PRESALE_START →
+ * built-in default. Always returns a value (never null), so the timer/phase are
+ * guaranteed; the admin can still override the date from the dashboard.
+ * Malformed/whitespace candidates are skipped (never returned), so callers can
+ * safely `new Date(...)` the result.
+ */
+export function resolvePresaleStart(dbStart: string | null | undefined): string {
+  for (const candidate of [dbStart, process.env.NEXT_PUBLIC_PRESALE_START]) {
+    const v = candidate?.trim();
+    if (v && !Number.isNaN(new Date(v).getTime())) return v;
+  }
+  return PRESALE_START_DEFAULT;
+}
+
 /** Presale end = start + duration (default 7 days). */
 export function presaleEndsAt(
   startsAt: Date,
@@ -60,28 +98,24 @@ export function getPresalePhase(
 }
 
 /**
- * Derive per-tier progress + status from raised amounts. Tiers fill
- * sequentially, so the active tier is the first non-filled tier (only when the
- * presale is live). Pure — no time access (caller supplies the phase).
+ * Derive per-tier progress + status from raised amounts. All tiers open
+ * SIMULTANEOUSLY at launch (time-based only — no raise-target fill): every tier
+ * is "active" while the presale is live; eligibility (isTierEligible) decides who
+ * can buy each. Pure — no time access (caller supplies the phase).
  */
 export function computeTierProgress(
   raisedByTier: Record<TierId, number>,
   phase: PresalePhase,
   overrides: Partial<Record<TierId, "paused" | "closed">> = {},
 ): TierProgress[] {
-  let activeAssigned = false;
   return TIERS.map((tier) => {
     const raised = raisedByTier[tier.id] ?? 0;
-    const filled = raised >= tier.raiseTarget;
 
     let status: TierStatus;
     if (phase === "ended") {
-      status = filled ? "filled" : "ended";
-    } else if (filled) {
-      status = "filled";
-    } else if (phase === "live" && !activeAssigned) {
+      status = "ended";
+    } else if (phase === "live") {
       status = "active";
-      activeAssigned = true;
     } else {
       status = "upcoming";
     }

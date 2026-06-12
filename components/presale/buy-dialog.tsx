@@ -12,7 +12,7 @@ import {
   isPresaleConfigured,
   solscanTx,
 } from "@/lib/solana/config";
-import { degxForUsdc } from "@/lib/presale";
+import { degxForUsdc, isTierEligible } from "@/lib/presale";
 import { degx, tokenPrice, usd } from "@/lib/format";
 import type { Tier, TierId } from "@/types/presale";
 
@@ -73,24 +73,26 @@ export function BuyDialog({
       setStatus("submitting");
       const owner = publicKey.toBase58();
 
-      // Early Believers (round 1) is reserved for tier-1 members — verified
-      // against the access cookie BEFORE funds move. Fails closed: if the
-      // check can't run we don't let the user send unallocatable USDC.
-      if (tier.id === 1) {
-        let memberTier: number | null = null;
+      // Rounds 1 & 2 are member-only — verify the access cookie's tier BEFORE
+      // funds move (Public round 3 needs no cookie). Fails closed: if the check
+      // can't run we don't let the user send unallocatable USDC.
+      if (tier.id !== 3) {
+        let memberTier: 1 | 2 | null = null;
         try {
           const meRes = await fetch("/api/access", { cache: "no-store" });
           if (meRes.ok) {
             const me = (await meRes.json()) as { tier?: number };
-            memberTier = me.tier ?? null;
+            memberTier = me.tier === 1 || me.tier === 2 ? me.tier : null;
           }
         } catch {
           memberTier = null;
         }
-        if (memberTier !== 1) {
+        if (!isTierEligible(tier.id, memberTier)) {
           setStatus("idle");
           setError(
-            "Early Believers is reserved for D-VIP/D-Pro 3+ members. You can join when Early Supporters opens.",
+            tier.id === 1
+              ? "Early Believers is reserved for D-VIP/D-Pro 3-6 members. Anyone can buy in the Public Presale instead."
+              : "Early Supporters is for Degxifi members. Open the presale from your dashboard, or buy in the Public Presale instead.",
           );
           return;
         }
@@ -107,7 +109,7 @@ export function BuyDialog({
         return;
       }
 
-      // Tier must still be open (launch time + sequential fill) before funds
+      // Tier must still be open (launch time + admin overrides) before funds
       // move — the server re-checks before recording, but failing here saves
       // the user from sending USDC that can't be allocated.
       try {
@@ -119,7 +121,7 @@ export function BuyDialog({
           const live = stats.tiers?.find((p) => p.tierId === tier.id)?.status;
           if (live && live !== "active") {
             setStatus("idle");
-            setError("This tier isn't open right now — it may have just filled.");
+            setError("This tier isn't open right now.");
             return;
           }
         }

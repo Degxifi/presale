@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
 import { PresaleCountdown } from "@/components/marketing/presale-countdown";
-import { BuyButton } from "@/components/presale/buy-button";
 
 export function Hero() {
   return (
@@ -37,7 +36,9 @@ export function Hero() {
         </div>
 
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row">
-          <BuyButton tier={TIERS[0]} size="lg" />
+          <Link href="#tiers" className={buttonVariants({ size: "lg" })}>
+            Choose your tier
+          </Link>
           <Link
             href="/how-it-works"
             className={buttonVariants({ variant: "secondary", size: "lg" })}
