@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ipAddress } from "@vercel/functions";
 import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access";
 import { PRESALE_WALLET_ADDRESS, isPresaleConfigured } from "@/lib/solana/config";
 import { verifyUsdcContribution } from "@/lib/solana/verify";
@@ -11,7 +10,7 @@ import {
   getWalletRaisedByTier,
   recordContribution,
 } from "@/lib/db/queries";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import type { TierId } from "@/types/presale";
 
 /**
@@ -19,7 +18,7 @@ import type { TierId } from "@/types/presale";
  * transaction (verified here), never trusted from the client.
  */
 export async function POST(request: Request) {
-  const ip = ipAddress(request) ?? "anonymous";
+  const ip = clientIp(request);
   if (!(await checkRateLimit(`contrib:${ip}`))) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },
