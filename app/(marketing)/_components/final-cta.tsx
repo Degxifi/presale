@@ -1,6 +1,5 @@
 import { TIERS } from "@/lib/constants";
 import { tokenPrice } from "@/lib/format";
-import { BuyButton } from "@/components/presale/buy-button";
 
 export function FinalCta() {
   return (
@@ -16,9 +15,6 @@ export function FinalCta() {
         Tier 1 starts at {tokenPrice(TIERS[0].price)}. The price only steps up
         from here.
       </p>
-      <div className="relative mt-8 flex justify-center">
-        <BuyButton tier={TIERS[0]} size="lg" />
-      </div>
     </div>
   );
 }
