@@ -13,16 +13,14 @@ export type NavItem = { label: string; href: string };
 export const mainNav: NavItem[] = [
   { label: "How It Works", href: "/how-it-works" },
   { label: "Tokenomics", href: "/tokenomics" },
-  { label: "Quests", href: "/quests" },
   { label: "FAQ", href: "/faq" },
 ];
 
 export type SocialKey = "x" | "telegram" | "discord";
 export type SocialLink = { label: string; href: string; key: SocialKey };
 
-// TODO: set real handles/URLs before launch
 export const socialLinks: SocialLink[] = [
-  { label: "X / Twitter", href: "#", key: "x" },
-  { label: "Telegram", href: "#", key: "telegram" },
-  { label: "Discord", href: "#", key: "discord" },
+  { label: "X / Twitter", href: "https://x.com/degxifi", key: "x" },
+  { label: "Telegram", href: "https://t.me/degxifi", key: "telegram" },
+  { label: "Discord", href: "https://discord.gg/qwNZDKcFY", key: "discord" },
 ];
