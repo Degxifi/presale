@@ -56,7 +56,7 @@ export const faqItems: AccordionItem[] = [
   {
     question: "Is there a minimum or maximum?",
     answer:
-      "Minimum is $50 USDC. Per-wallet maximums are $2,000 (Tier 1), $1,000 (Tier 2), and $500 (Tier 3), cumulative across transactions.",
+      "Minimum is $50 USDC. Per-wallet maximums are $2,000 (Tier 1), $1,000 (Tier 2), and $1,000 (Tier 3), cumulative across transactions.",
   },
 ];
 

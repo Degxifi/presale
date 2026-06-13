@@ -64,7 +64,7 @@ export const TIERS = [
     // Out when the SHOWN total reaches the $118K target. Server uses real amounts.
     raisedBoost: 77_217.27,
     minBuy: 50,
-    maxBuy: 500,
+    maxBuy: 1_000,
     estWallets: { min: 25, max: 1_000 },
     // Public-tier ROI at the $600K graduation MC (matches PROFIT_SCENARIOS row 1).
     roiAtGraduation: 0.15,
