@@ -128,7 +128,7 @@ export function computeTierProgress(
   applyBoost = false,
 ): TierProgress[] {
   return TIERS.map((tier) => {
-    const raised =
+    const boosted =
       (raisedByTier[tier.id] ?? 0) +
       (applyBoost ? (tier as Tier).raisedBoost ?? 0 : 0);
 
@@ -138,7 +138,7 @@ export function computeTierProgress(
     } else if (phase === "live") {
       // Fill-based auto Sold Out: once raised reaches the target, stop showing
       // it as open. Time-based "active" otherwise.
-      status = raised >= tier.raiseTarget ? "filled" : "active";
+      status = boosted >= tier.raiseTarget ? "filled" : "active";
     } else {
       status = "upcoming";
     }
@@ -147,6 +147,12 @@ export function computeTierProgress(
     const override = overrides[tier.id];
     if (override === "closed") status = "closed";
     else if (override === "paused") status = "paused";
+
+    // On the boosted (public) path, never DISPLAY past the target, so a filled
+    // tier reads as exactly "$target / $target" with a full bar instead of
+    // overshooting as real buys trickle in past the boost. The status decision
+    // above still uses the true boosted figure.
+    const raised = applyBoost ? Math.min(boosted, tier.raiseTarget) : boosted;
 
     const soldTokens =
       tier.price > 0 ? Math.min(raised / tier.price, tier.tokensAvailable) : 0;
