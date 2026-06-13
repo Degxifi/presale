@@ -1,6 +1,7 @@
 import { PRESALE, TIERS, TOKEN } from "@/lib/constants";
 import type {
   PresalePhase,
+  Tier,
   TierId,
   TierProgress,
   TierStatus,
@@ -36,6 +37,18 @@ export function getTier(id: TierId) {
   const tier = TIERS.find((t) => t.id === id);
   if (!tier) throw new Error(`Unknown tier: ${id}`);
   return tier;
+}
+
+/**
+ * Max USDC a tier can take before its FIXED $DEGX allocation is exhausted
+ * (tokensAvailable × price). The hard ceiling for distribution: accepting more
+ * than this would promise more $DEGX than the tier's pool holds. Enforced
+ * server-side in the contribution path (overflow is flagged for review).
+ */
+export function tierUsdcCeiling(
+  tier: Pick<Tier, "tokensAvailable" | "price">,
+): number {
+  return tier.tokensAvailable * tier.price;
 }
 
 /**

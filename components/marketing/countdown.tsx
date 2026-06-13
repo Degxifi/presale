@@ -102,16 +102,25 @@ export function Countdown({
 }
 
 /**
- * Compact, inline countdown to a START time (e.g. "1d 23:45:12"), bold by
- * default. Used on the Tier-1 card's "Opens at launch" state. Renders nothing
- * once the target has passed (the tier flips to active on its own).
+ * Compact, inline countdown to a START time (e.g. "Opens in 1d 23:45:12"), bold
+ * by default. Used on the tier cards' "Opens at launch" state.
+ *
+ * `prefix` is rendered before the clock while counting down. Once the target
+ * passes, it shows `doneLabel` (e.g. "Opening…") instead of vanishing — so the
+ * card never shows a dangling prefix with no time during the brief window
+ * between launch and the next stats poll flipping the tier to active. Renders
+ * nothing until mounted (SSR/first paint parity).
  */
 export function LaunchCountdown({
   target,
   className,
+  prefix = "",
+  doneLabel,
 }: {
   target: string | null;
   className?: string;
+  prefix?: string;
+  doneLabel?: string;
 }) {
   const [parts, setParts] = useState<Parts | null>(null);
 
@@ -128,12 +137,19 @@ export function LaunchCountdown({
     };
   }, [target]);
 
-  if (!target || !parts || parts.done) return null;
+  if (!target || !parts) return null;
+
+  if (parts.done) {
+    return doneLabel ? (
+      <span className={cn("font-display font-bold", className)}>{doneLabel}</span>
+    ) : null;
+  }
 
   const pad = (n: number) => String(n).padStart(2, "0");
   const clock = `${pad(parts.hours)}:${pad(parts.minutes)}:${pad(parts.seconds)}`;
   return (
     <span className={cn("font-display font-bold tabular-nums", className)}>
+      {prefix}
       {parts.days > 0 ? `${parts.days}d ` : ""}
       {clock}
     </span>

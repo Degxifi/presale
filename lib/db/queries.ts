@@ -1,4 +1,4 @@
-import { and, countDistinct, desc, eq } from "drizzle-orm";
+import { and, countDistinct, desc, eq, sql } from "drizzle-orm";
 import type { TierId } from "@/types/presale";
 import { db } from "./index";
 import { appSettings, contributions } from "./schema";
@@ -31,72 +31,155 @@ const DEFAULT_SETTINGS: AppSettings = {
   tierOverrides: {},
 };
 
-/** Postgres unique-violation (SQLSTATE 23505), however the driver wraps it. */
-function isUniqueViolation(e: unknown): boolean {
-  for (let cur = e; cur instanceof Error; cur = cur.cause) {
-    if ((cur as { code?: string }).code === "23505") return true;
-  }
-  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
-  return msg.includes("duplicate key") || msg.includes("unique");
-}
+export type RecordReason = "below_min" | "over_cap" | "over_tier";
+export type RecordResult = {
+  /** false when the tx_sig already existed (idempotent re-submit). */
+  recorded: boolean;
+  /** Stored status of the row after this call. */
+  status: "confirmed" | "pending";
+  /** Why the row was flagged 'pending', if it was. */
+  reason: RecordReason | null;
+};
 
-/** Insert a confirmed contribution. Idempotent on tx_sig (re-submits are no-ops). */
-export async function recordContribution(input: {
+/**
+ * Record a verified on-chain contribution and decide its status ATOMICALLY.
+ *
+ * Invariant: a payment that has already moved on-chain is NEVER dropped — every
+ * verified tx produces a durable row. Rows that can't be counted yet (below the
+ * tier minimum, over the per-wallet cap, or past the tier's token allocation)
+ * are stored as 'pending' (excluded from totals/caps) and surfaced to admins
+ * for manual review — instead of being rejected or silently lost.
+ *
+ * Concurrency: a transaction-scoped advisory lock keyed on the WALLET serializes
+ * all of that wallet's buys, so the read-then-write cap decision is race-free
+ * (no more "two concurrent buys both demoted" or "both slip past the cap"). The
+ * lock is pg_advisory_xact_lock — released at COMMIT, so it is safe under the
+ * Supabase transaction pooler. Idempotent on tx_sig: a re-submit (even under a
+ * different tier) finds the existing row and is a no-op, so it can't retarget
+ * the cap check at the wrong tier.
+ *
+ * The per-TIER ceiling check (token-allocation cap) is best-effort: it is NOT
+ * serialized across wallets (that would serialize the whole tier and kill launch
+ * throughput), so a small number of buys may cross the boundary before it trips.
+ * It reliably prevents gross oversell (a tier raising well past its allocation).
+ */
+export async function recordContributionWithCap(input: {
   wallet: string;
   tier: TierId;
   amount: number;
   txSig: string;
   memberUid?: string | null;
-}): Promise<void> {
+  minBuy: number;
+  maxBuy: number;
+  tierCeiling: number;
+}): Promise<RecordResult> {
   if (!db) throw new Error("Database is not configured.");
-  try {
-    await db.insert(contributions).values({
-      wallet: input.wallet,
-      tier: input.tier,
-      amountUsdc: String(input.amount), // numeric column takes a string
-      txSig: input.txSig,
+  const { wallet, tier, amount, txSig, minBuy, maxBuy, tierCeiling } = input;
+
+  return db.transaction(async (tx) => {
+    // Serialize this WALLET's buys so the per-wallet cap + idempotency decision
+    // can't race. Deliberately NOT a per-tier lock: that would make the tier
+    // ceiling a hard stop but serialize ALL buys to a tier, and lock-waiters
+    // hold a pooled DB connection while blocked → connection-pool exhaustion
+    // under a launch spike (a far worse failure than a small boundary
+    // over-allocation). So the per-tier ceiling below stays best-effort.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${wallet})::bigint)`);
+
+    // Idempotency: if this tx is already recorded, return its CURRENT state and
+    // do nothing (never re-flag an existing row against a different tier).
+    const [existing] = await tx
+      .select({ status: contributions.status })
+      .from(contributions)
+      .where(eq(contributions.txSig, txSig))
+      .limit(1);
+    if (existing) {
+      return {
+        recorded: false,
+        status: existing.status === "confirmed" ? "confirmed" : "pending",
+        reason: null,
+      };
+    }
+
+    // Decide the status of this NEW row from race-free sums taken under the lock.
+    let status: "confirmed" | "pending" = "confirmed";
+    let reason: RecordReason | null = null;
+
+    if (amount < minBuy - 0.01) {
+      status = "pending";
+      reason = "below_min";
+    } else {
+      const [w] = await tx
+        .select({
+          total: sql<string>`coalesce(sum(${contributions.amountUsdc}), 0)`,
+        })
+        .from(contributions)
+        .where(
+          and(
+            eq(contributions.wallet, wallet),
+            eq(contributions.tier, tier),
+            eq(contributions.status, "confirmed"),
+          ),
+        );
+      if (Number(w?.total ?? 0) + amount > maxBuy + 0.01) {
+        status = "pending";
+        reason = "over_cap";
+      } else {
+        const [t] = await tx
+          .select({
+            total: sql<string>`coalesce(sum(${contributions.amountUsdc}), 0)`,
+          })
+          .from(contributions)
+          .where(
+            and(
+              eq(contributions.tier, tier),
+              eq(contributions.status, "confirmed"),
+            ),
+          );
+        if (Number(t?.total ?? 0) + amount > tierCeiling + 0.01) {
+          status = "pending";
+          reason = "over_tier";
+        }
+      }
+    }
+
+    await tx.insert(contributions).values({
+      wallet,
+      tier,
+      amountUsdc: String(amount), // numeric column takes a string
+      txSig,
       memberUid: input.memberUid ?? null,
-      status: "confirmed",
+      status,
     });
-  } catch (e) {
-    if (isUniqueViolation(e)) return;
-    throw e;
-  }
+
+    return { recorded: true, status, reason };
+  });
 }
 
 /**
- * Post-insert cap re-check: the pre-insert cap check is read-then-insert, so
- * concurrent buys from one wallet can race past it. If the wallet's confirmed
- * total for the tier now exceeds the cap, flip THIS row to 'pending' (pending
- * rows are excluded from totals and cap sums) so it's flagged for manual
- * review instead of silently busting the cap. Returns true if demoted.
+ * Raised USDC per tier from CONFIRMED rows, via a SQL aggregate (SUM grouped by
+ * tier) — not a full-table fetch summed in JS, so cost stays flat as the table
+ * grows. This is the lightweight read used on the hot contribution write path.
  */
-export async function demoteContributionIfOverCap(
-  txSig: string,
-  wallet: string,
-  tier: TierId,
-  maxBuy: number,
-): Promise<boolean> {
-  if (!db) return false;
-  const raised = await getWalletRaisedByTier(wallet);
-  if (raised[tier] <= maxBuy + 0.01) return false;
-  await db
-    .update(contributions)
-    .set({ status: "pending" })
-    .where(eq(contributions.txSig, txSig));
-  return true;
+export async function getRaisedByTier(): Promise<Record<TierId, number>> {
+  const raisedByTier = zeroByTier();
+  if (!db) return raisedByTier;
+  const rows = await db
+    .select({
+      tier: contributions.tier,
+      total: sql<string>`sum(${contributions.amountUsdc})`,
+    })
+    .from(contributions)
+    .where(eq(contributions.status, "confirmed"))
+    .groupBy(contributions.tier);
+  for (const r of rows) raisedByTier[r.tier as TierId] = Number(r.total ?? 0);
+  return raisedByTier;
 }
 
 /** Raised-per-tier, participant count, and recent buys. Empty when unconfigured. */
 export async function getRawStats(): Promise<RawStats> {
   if (!db) return { raisedByTier: zeroByTier(), participantCount: 0, recent: [] };
 
-  const rows = await db
-    .select({ tier: contributions.tier, amount: contributions.amountUsdc })
-    .from(contributions)
-    .where(eq(contributions.status, "confirmed"));
-  const raisedByTier = zeroByTier();
-  for (const r of rows) raisedByTier[r.tier as TierId] += Number(r.amount);
+  const raisedByTier = await getRaisedByTier();
 
   const [{ count } = { count: 0 }] = await db
     .select({ count: countDistinct(contributions.wallet) })
@@ -133,16 +216,20 @@ export async function getWalletRaisedByTier(
   const result = zeroByTier();
   if (!db) return result;
   const rows = await db
-    .select({ tier: contributions.tier, amount: contributions.amountUsdc })
+    .select({
+      tier: contributions.tier,
+      total: sql<string>`sum(${contributions.amountUsdc})`,
+    })
     .from(contributions)
     .where(
       and(eq(contributions.wallet, wallet), eq(contributions.status, "confirmed")),
-    );
-  for (const r of rows) result[r.tier as TierId] += Number(r.amount);
+    )
+    .groupBy(contributions.tier);
+  for (const r of rows) result[r.tier as TierId] = Number(r.total ?? 0);
   return result;
 }
 
-/** All confirmed contributions (admin CSV export), oldest first. */
+/** All confirmed contributions (admin CSV export / distribution), oldest first. */
 export async function getAllContributions() {
   if (!db) return [];
   return db
@@ -150,6 +237,21 @@ export async function getAllContributions() {
     .from(contributions)
     .where(eq(contributions.status, "confirmed"))
     .orderBy(contributions.createdAt);
+}
+
+/**
+ * Contributions flagged for manual review (status='pending'): below-min,
+ * over-cap, or over-tier-allocation payments whose USDC HAS moved on-chain but
+ * is intentionally excluded from totals/caps until an admin reconciles it. These
+ * would otherwise be invisible everywhere, so the admin dashboard surfaces them.
+ */
+export async function getFlaggedContributions() {
+  if (!db) return [];
+  return db
+    .select()
+    .from(contributions)
+    .where(eq(contributions.status, "pending"))
+    .orderBy(desc(contributions.createdAt));
 }
 
 /** Admin-controlled settings (single row). Defaults when unconfigured. */

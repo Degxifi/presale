@@ -1,5 +1,10 @@
 import { getSession, isAdmin, isAdminConfigured } from "@/lib/admin/guard";
-import { getAllContributions, getRawStats, getSettings } from "@/lib/db/queries";
+import {
+  getAllContributions,
+  getFlaggedContributions,
+  getRawStats,
+  getSettings,
+} from "@/lib/db/queries";
 import {
   computeTierProgress,
   degxForUsdc,
@@ -42,11 +47,13 @@ export default async function AdminPage() {
   }
 
   // Authed admin: load live data.
-  const [{ raisedByTier, participantCount }, settings, all] = await Promise.all([
-    getRawStats(),
-    getSettings(),
-    getAllContributions(),
-  ]);
+  const [{ raisedByTier, participantCount }, settings, all, flagged] =
+    await Promise.all([
+      getRawStats(),
+      getSettings(),
+      getAllContributions(),
+      getFlaggedContributions(),
+    ]);
   const startsAt = resolvePresaleStart(settings.presaleStart);
   const phase = getPresalePhase(startsAt);
   const tiers = computeTierProgress(raisedByTier, phase, settings.tierOverrides);
@@ -57,7 +64,7 @@ export default async function AdminPage() {
     { label: "Total raised", value: usd(totalRaised) },
     { label: "Participants", value: num(participantCount) },
     { label: "Phase", value: phase },
-    { label: "Contributions", value: num(all.length) },
+    { label: "Flagged", value: num(flagged.length) },
   ];
 
   return (
@@ -117,6 +124,50 @@ export default async function AdminPage() {
         <TierControls initial={settings.tierOverrides} />
 
         <AdminUsers />
+
+        {flagged.length > 0 && (
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/5 p-6">
+            <h2 className="font-semibold text-amber-600 dark:text-amber-400">
+              Flagged for review ({num(flagged.length)})
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              Verified on-chain payments held out of totals/caps (below the tier
+              minimum, over the per-wallet cap, or past the tier allocation).
+              Reconcile manually — they are NOT counted or distributed until
+              resolved.
+            </p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-muted">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">Wallet</th>
+                    <th className="py-2 pr-4 font-medium">Tier</th>
+                    <th className="py-2 pr-4 text-right font-medium">USDC</th>
+                    <th className="py-2 pr-4 font-medium">Tx</th>
+                    <th className="py-2 text-right font-medium">When</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {flagged.map((c) => (
+                    <tr key={c.txSig}>
+                      <td className="py-2 pr-4 font-mono">{shortWallet(c.wallet)}</td>
+                      <td className="py-2 pr-4">{c.tier}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">
+                        {usd(Number(c.amountUsdc))}
+                      </td>
+                      <td className="py-2 pr-4 font-mono text-xs">
+                        {c.txSig.slice(0, 12)}…
+                      </td>
+                      <td className="py-2 text-right text-muted">
+                        {c.createdAt.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div className="rounded-2xl border border-border bg-surface p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">

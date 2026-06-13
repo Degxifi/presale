@@ -71,9 +71,20 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Verify an entry token or cookie value. Null if invalid, expired, or unconfigured. */
+/**
+ * Verify an entry token or cookie value. Null if invalid, expired, or
+ * unconfigured.
+ *
+ * `expectCookie` is for the cookie-READ paths (the access cookie, the
+ * contribution gate, the landing page): they must only accept a value WE minted
+ * (typ:"cookie"), not a raw backend entry token pasted in as a cookie. Only
+ * `/access` (the exchange endpoint) verifies raw entry tokens, and it has its
+ * own typ guard. NOTE: this does not stop replay of a still-valid /access link
+ * before its exp — single-use enforcement needs a backend-minted jti.
+ */
 export async function verifyAccessToken(
   token: string | undefined | null,
+  opts: { expectCookie?: boolean } = {},
 ): Promise<AccessPayload | null> {
   const secret = getSecret();
   if (!secret || !token) return null;
@@ -98,6 +109,14 @@ export async function verifyAccessToken(
     return null;
   }
   if (typeof payload.exp !== "number" || payload.exp * 1000 < Date.now()) {
+    return null;
+  }
+  // Accept legacy cookies that predate the typ field (minted 2026-06-11→06-12,
+  // 7-day expiry → gone by ~06-18): treat a MISSING typ as a legacy cookie so
+  // early members aren't locked out of rounds 1/2 on launch day. Still reject a
+  // token whose typ is some OTHER value. Tighten to strict `!== "cookie"` once
+  // all pre-typ cookies have expired.
+  if (opts.expectCookie && payload.typ !== undefined && payload.typ !== "cookie") {
     return null;
   }
   return payload;

@@ -24,6 +24,18 @@ export const PRESALE_WALLET_ADDRESS = "yDAtT5WmU83NFRKgLMryL825RnGWmxbUe7g4NYZa5
 
 export const isPresaleConfigured = () => PRESALE_WALLET_ADDRESS.length > 0;
 
+const BASE58 = "[1-9A-HJ-NP-Za-km-z]";
+const WALLET_RE = new RegExp(`^${BASE58}{32,44}$`);
+const TXSIG_RE = new RegExp(`^${BASE58}{64,90}$`);
+
+/** Cheap base58 shape check for a Solana wallet pubkey (no key import). */
+export const isLikelyWalletAddress = (s: unknown): s is string =>
+  typeof s === "string" && WALLET_RE.test(s);
+
+/** Cheap base58 shape check for a Solana transaction signature. */
+export const isLikelyTxSignature = (s: unknown): s is string =>
+  typeof s === "string" && TXSIG_RE.test(s);
+
 /** Solscan transaction link (mainnet). */
 export const solscanTx = (signature: string) =>
   `https://solscan.io/tx/${signature}`;

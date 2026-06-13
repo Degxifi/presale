@@ -31,11 +31,21 @@ const ALLOWED_METHODS = new Set([
 
 export async function POST(request: Request) {
   // Deter cross-site browser abuse of our RPC quota (server callers can spoof,
-  // so this is a deterrent — the rate limit below is the real backstop).
+  // so this is a deterrent — the rate limit below is the real backstop). Match
+  // the Origin's HOST exactly, not by suffix: `endsWith(host)` would accept any
+  // sibling like evilpresale.degxifi.com (it ends with presale.degxifi.com).
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
-  if (origin && host && !origin.endsWith(host)) {
-    return new Response("Forbidden", { status: 403 });
+  if (origin && host) {
+    let originHost: string | null = null;
+    try {
+      originHost = new URL(origin).host;
+    } catch {
+      originHost = null;
+    }
+    if (originHost !== host) {
+      return new Response("Forbidden", { status: 403 });
+    }
   }
 
   if (!(await checkRateLimit(`rpc:${clientIp(request)}`, "rpc"))) {
@@ -56,6 +66,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON-RPC body." }, { status: 400 });
   }
   const calls = Array.isArray(parsed) ? parsed : [parsed];
+  // Cap batch size: the buy flow never batches more than a handful, but an
+  // unbounded batch costs ONE rate-limit token while multiplying provider-quota
+  // consumption by its length — it could starve contribution verification.
+  if (calls.length > 8) {
+    return Response.json(
+      { error: "RPC batch too large." },
+      { status: 400 },
+    );
+  }
   const allowed =
     calls.length > 0 &&
     calls.every(
