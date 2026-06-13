@@ -5,6 +5,8 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { Check, Copy, LogOut, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MobileWalletSheet } from "@/components/wallet/mobile-wallet-sheet";
+import { needsInAppBrowser } from "@/lib/wallet/mobile";
 import { shortWallet } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -21,21 +23,30 @@ export function ConnectWalletButton({
    */
   inline?: boolean;
 }) {
-  const { publicKey, connected, connecting, disconnect } = useWallet();
+  const { publicKey, connected, connecting, disconnect, wallets } = useWallet();
   const { setVisible } = useWalletModal();
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [mobileSheet, setMobileSheet] = useState(false);
 
   if (!connected || !publicKey) {
     return (
-      <Button
-        className={className}
-        onClick={() => setVisible(true)}
-        disabled={connecting}
-      >
-        <Wallet className="size-4" />
-        {connecting ? "Connecting…" : "Connect Wallet"}
-      </Button>
+      <>
+        <Button
+          className={className}
+          onClick={() =>
+            needsInAppBrowser(wallets) ? setMobileSheet(true) : setVisible(true)
+          }
+          disabled={connecting}
+        >
+          <Wallet className="size-4" />
+          {connecting ? "Connecting…" : "Connect Wallet"}
+        </Button>
+        <MobileWalletSheet
+          open={mobileSheet}
+          onClose={() => setMobileSheet(false)}
+        />
+      </>
     );
   }
 
