@@ -18,6 +18,16 @@ export const ACCESS_COOKIE = "presale_access";
 /** Cookie lifetime: one week, then the member just clicks through again. */
 export const ACCESS_COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
 
+/**
+ * Unix seconds for 2026-06-13T00:00:00Z — the cutover after which every minted
+ * cookie carries typ:"cookie". Cookies with iat before this may legitimately be
+ * typ-less (minted before the typ field shipped) and are still honored on the
+ * read paths; a typ-less token with a later iat is a raw entry token and is
+ * rejected as a cookie. Safe to delete once pre-cutover cookies have expired
+ * (~2026-06-20), reverting to a strict typ==="cookie" check.
+ */
+const TYP_CUTOVER = 1781308800;
+
 export type AccessPayload = {
   uid: string;
   tier: 1 | 2;
@@ -111,13 +121,17 @@ export async function verifyAccessToken(
   if (typeof payload.exp !== "number" || payload.exp * 1000 < Date.now()) {
     return null;
   }
-  // Accept legacy cookies that predate the typ field (minted 2026-06-11→06-12,
-  // 7-day expiry → gone by ~06-18): treat a MISSING typ as a legacy cookie so
-  // early members aren't locked out of rounds 1/2 on launch day. Still reject a
-  // token whose typ is some OTHER value. Tighten to strict `!== "cookie"` once
-  // all pre-typ cookies have expired.
-  if (opts.expectCookie && payload.typ !== undefined && payload.typ !== "cookie") {
-    return null;
+  // expectCookie: read paths accept only a value WE minted (typ:"cookie").
+  // Exception: cookies minted BEFORE typ existed (iat before the cutover) are
+  // still honored so early members aren't locked out — but ONLY those. Gating on
+  // iat (not just "typ missing") means a raw backend entry token, which is also
+  // typ-less but minted after the cutover, is still rejected as a cookie — so the
+  // entry-token-as-cookie bypass stays closed, and this legacy allowance can't
+  // silently persist past the pre-typ cookies' 7-day expiry (~2026-06-19), after
+  // which this exception is dead and can be removed for strict `!== "cookie"`.
+  if (opts.expectCookie && payload.typ !== "cookie") {
+    const legacyCookie = payload.typ === undefined && payload.iat < TYP_CUTOVER;
+    if (!legacyCookie) return null;
   }
   return payload;
 }
