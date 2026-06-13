@@ -22,7 +22,8 @@ const VIS: Record<
 function statusLabel(status: TierStatus): string {
   if (status === "active") return "Open now";
   if (status === "paused") return "Paused";
-  if (status === "closed" || status === "ended") return "Sold Out";
+  if (status === "closed" || status === "ended" || status === "filled")
+    return "Sold Out";
   return "Opens at launch"; // all tiers open at launch (time-based, no targets)
 }
 
@@ -42,7 +43,7 @@ export function TierCard({
   startsAt?: string | null;
 }) {
   const v = VIS[tier.id];
-  const pct = (raised / tier.raiseTarget) * 100;
+  const pct = Math.min(100, (raised / tier.raiseTarget) * 100);
   const isOpen = status === "active";
   // Cumulative access: T1 → tier-1 members; T2 → any member; T3 → everyone.
   const eligible = isTierEligible(tier.id, accessTier);

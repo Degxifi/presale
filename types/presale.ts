@@ -7,17 +7,18 @@
 export type TierId = 1 | 2 | 3;
 
 /**
- * Tier lifecycle on the site (time-based: all tiers open simultaneously at the
- * launch instant and close when the presale timer expires — there is no
- * raise-target "fill" gate):
+ * Tier lifecycle on the site (all tiers open simultaneously at the launch
+ * instant):
  * - upcoming: before launch
  * - active:   currently accepting contributions
+ * - filled:   raised reached the tier target → auto Sold Out
  * - ended:    presale timer expired
  * - paused/closed: admin override
  */
 export type TierStatus =
   | "upcoming"
   | "active"
+  | "filled" // raised hit the target → Sold Out (auto)
   | "ended"
   | "paused" // admin-paused
   | "closed"; // admin-closed
@@ -35,8 +36,12 @@ export interface Tier {
   impliedMarketCap: number;
   /** DEGX tokens allocated to this tier. */
   tokensAvailable: number;
-  /** USDC raise target that must be met before the next tier opens. */
+  /** USDC raise target; the tier auto-Sells-Out (status "filled") when the
+   *  (optionally boosted) raised amount reaches it. */
   raiseTarget: number;
+  /** Display-only baseline added to the PUBLIC raised figure (momentum/FOMO).
+   *  Does NOT touch recorded contributions; the server uses real amounts. */
+  raisedBoost?: number;
   /** Minimum contribution per transaction, USDC. */
   minBuy: number;
   /** Maximum cumulative contribution per wallet, USDC. */

@@ -96,14 +96,20 @@ export async function POST(request: Request) {
     getRaisedByTier(),
     getSettings(),
   ]);
+  // Real raised here (no display boost) — recording must work off real amounts.
   const phase = getPresalePhase(resolvePresaleStart(settings.presaleStart));
   const progress = computeTierProgress(raisedByTier, phase, settings.tierOverrides);
   const tierStatus = progress.find((p) => p.tierId === t.id)?.status;
-  // "active" accepts new buys. "paused" still RECORDS: by the time this runs
-  // the USDC has already moved on-chain, and silently dropping the row (the
-  // payment can't be dropped) is the worse failure — an admin pause mid-flight
-  // must not erase a paid contribution. Pre-launch/closed/ended stay rejected.
-  if (tierStatus !== "active" && tierStatus !== "paused") {
+  // "active" accepts new buys. "paused" and "filled" (target reached) still
+  // RECORD: by the time this runs the USDC has already moved on-chain, and
+  // silently dropping the row is the worse failure — recordContributionWithCap
+  // flags an over-allocation as 'pending' for review instead. Pre-launch /
+  // closed / ended stay rejected (no money has moved on those).
+  if (
+    tierStatus !== "active" &&
+    tierStatus !== "paused" &&
+    tierStatus !== "filled"
+  ) {
     return NextResponse.json(
       { error: `${t.name} is not open for contributions right now.` },
       { status: 400 },

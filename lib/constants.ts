@@ -58,7 +58,11 @@ export const TIERS = [
     price: 0.0006,
     impliedMarketCap: 600_000,
     tokensAvailable: 83_400_000,
-    raiseTarget: 50_000,
+    raiseTarget: 118_000,
+    // Display-only baseline so the public card shows ~$98K raised (real ~$20.8K
+    // at set time + this offset); real buys add on top and the tier auto-Sells-
+    // Out when the SHOWN total reaches the $118K target. Server uses real amounts.
+    raisedBoost: 77_217.27,
     minBuy: 50,
     maxBuy: 500,
     estWallets: { min: 25, max: 1_000 },
