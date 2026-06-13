@@ -174,7 +174,16 @@ export function BuyDialog({
 
       const recipient = new PublicKey(PRESALE_WALLET_ADDRESS);
       const tx = await buildUsdcTransfer(connection, publicKey, recipient, value);
-      const signature = await sendTransaction(tx, connection);
+      // skipPreflight: a transient preflight "signature verification failure"
+      // was failing the buy in the UI even though the transaction broadcast and
+      // LANDED (funds moved). Skip preflight and treat confirmSignature (polling
+      // the signature on-chain) as the source of truth, so a preflight
+      // false-negative can't report a successful payment as failed. A genuinely
+      // bad tx still surfaces via confirmSignature (on-chain err / timeout).
+      const signature = await sendTransaction(tx, connection, {
+        skipPreflight: true,
+        maxRetries: 5,
+      });
       await confirmSignature(connection, signature);
 
       setSig(signature);
