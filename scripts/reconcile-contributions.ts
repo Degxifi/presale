@@ -76,18 +76,25 @@ async function main() {
 
   type Row = { sig: string; payer: string; usdc: number; at: string };
   const unmatched: Row[] = [];
+  const failedSigs: string[] = []; // RPC errored — NOT proven clean; must re-check
   const CHUNK = 8;
   for (let i = 0; i < toCheck.length; i += CHUNK) {
     const chunk = toCheck.slice(i, i + CHUNK);
-    const txs = await Promise.all(
+    const results = await Promise.all(
       chunk.map((sig) =>
         connection
           .getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" })
-          .then((tx) => ({ sig, tx }))
-          .catch(() => ({ sig, tx: null })),
+          .then((tx) => ({ sig, tx, errored: false }))
+          .catch(() => ({ sig, tx: null, errored: true })),
       ),
     );
-    for (const { sig, tx } of txs) {
+    for (const { sig, tx, errored } of results) {
+      // A dropped getParsedTransaction must NOT be silently treated as "no
+      // credit" — it could be an unrecorded payment. Collect it and warn.
+      if (errored) {
+        failedSigs.push(sig);
+        continue;
+      }
       if (!tx || tx.meta?.err) continue;
       const pre = BigInt(recipientUsdc(tx.meta?.preTokenBalances)?.uiTokenAmount.amount ?? "0");
       const post = BigInt(recipientUsdc(tx.meta?.postTokenBalances)?.uiTokenAmount.amount ?? "0");
@@ -113,6 +120,12 @@ async function main() {
   }
   console.log(`\nTotal unrecorded: ${total.toFixed(2)} USDC across ${unmatched.length} payment(s).`);
   console.log("Recorded rows (incl. pending/flagged) are excluded. Verify each before crediting/refunding.");
+  if (failedSigs.length) {
+    console.log(
+      `\n⚠ COULD NOT INSPECT ${failedSigs.length} signature(s) due to RPC errors — this report is NOT complete. Re-run (use a Helius SOLANA_RPC_URL, not the public RPC) to clear these:`,
+    );
+    for (const s of failedSigs) console.log(`  ${s}`);
+  }
   process.exit(0);
 }
 
