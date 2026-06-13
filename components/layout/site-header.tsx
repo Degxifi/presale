@@ -108,7 +108,7 @@ export function SiteHeader() {
                   {item.label}
                 </Link>
               ))}
-              <ConnectWalletButton className="mt-2 w-full" />
+              <ConnectWalletButton className="mt-2 w-full" inline />
             </Container>
           </motion.nav>
         )}

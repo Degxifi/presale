@@ -8,7 +8,19 @@ import { Button } from "@/components/ui/button";
 import { shortWallet } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-export function ConnectWalletButton({ className }: { className?: string }) {
+export function ConnectWalletButton({
+  className,
+  inline = false,
+}: {
+  className?: string;
+  /**
+   * Inline layout for places where an absolutely-positioned dropdown would be
+   * clipped — notably the mobile menu, whose container is `overflow-hidden` for
+   * its height animation. Stacks the address + Disconnect as normal buttons so
+   * Disconnect is actually reachable on mobile.
+   */
+  inline?: boolean;
+}) {
   const { publicKey, connected, connecting, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -33,6 +45,30 @@ export function ConnectWalletButton({ className }: { className?: string }) {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
+  if (inline) {
+    return (
+      <div className={cn("flex flex-col gap-1", className)}>
+        <button
+          type="button"
+          onClick={copyAddress}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-muted transition-colors hover:text-foreground"
+        >
+          <span className="size-2 rounded-full bg-success" />
+          {shortWallet(address)}
+          {copied ? (
+            <Check className="size-4 text-success" />
+          ) : (
+            <Copy className="size-4" />
+          )}
+        </button>
+        <Button variant="secondary" className="w-full" onClick={() => disconnect()}>
+          <LogOut className="size-4" />
+          Disconnect
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("relative", className)}>
