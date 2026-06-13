@@ -66,7 +66,8 @@ export const TIERS = [
     minBuy: 50,
     maxBuy: 500,
     estWallets: { min: 25, max: 1_000 },
-    roiAtGraduation: 0,
+    // Public-tier ROI at the $600K graduation MC (matches PROFIT_SCENARIOS row 1).
+    roiAtGraduation: 0.15,
   },
 ] as const satisfies readonly Tier[];
 
