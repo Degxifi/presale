@@ -8,7 +8,9 @@ import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access";
  */
 export async function GET() {
   const cookieStore = await cookies();
-  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
+  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value, {
+    expectCookie: true,
+  });
   if (!access) {
     return NextResponse.json({ error: "No presale access." }, { status: 401 });
   }

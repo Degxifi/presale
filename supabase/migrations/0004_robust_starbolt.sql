@@ -1,0 +1,1 @@
+CREATE INDEX "contributions_status_tier_idx" ON "contributions" USING btree ("status","tier");

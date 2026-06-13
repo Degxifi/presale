@@ -7,16 +7,17 @@
 export type TierId = 1 | 2 | 3;
 
 /**
- * Tier lifecycle on the site:
- * - upcoming: not open yet (a previous tier must fill first)
+ * Tier lifecycle on the site (time-based: all tiers open simultaneously at the
+ * launch instant and close when the presale timer expires — there is no
+ * raise-target "fill" gate):
+ * - upcoming: before launch
  * - active:   currently accepting contributions
- * - filled:   raise target met, closed
- * - ended:    presale timer expired (regardless of fill)
+ * - ended:    presale timer expired
+ * - paused/closed: admin override
  */
 export type TierStatus =
   | "upcoming"
   | "active"
-  | "filled"
   | "ended"
   | "paused" // admin-paused
   | "closed"; // admin-closed

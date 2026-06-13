@@ -16,7 +16,9 @@ export default async function PresaleLandingPage() {
   // Membership tier from the access cookie — Early Believers (round 1) is
   // reserved for tier-1 members (D-VIP/D-Pro levels 3-6).
   const cookieStore = await cookies();
-  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
+  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value, {
+    expectCookie: true,
+  });
   const accessTier = access?.tier ?? null;
 
   return (

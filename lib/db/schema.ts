@@ -46,6 +46,8 @@ export const contributions = pgTable(
     index("contributions_wallet_idx").on(t.wallet),
     index("contributions_tier_idx").on(t.tier),
     index("contributions_created_idx").on(t.createdAt.desc()),
+    // Backs the status-filtered aggregates (SUM raised per tier, flagged list).
+    index("contributions_status_tier_idx").on(t.status, t.tier),
     check("contributions_tier_valid", sql`${t.tier} in (1, 2, 3)`),
     check("contributions_amount_positive", sql`${t.amountUsdc} > 0`),
     check("contributions_status_valid", sql`${t.status} in ('pending', 'confirmed')`),

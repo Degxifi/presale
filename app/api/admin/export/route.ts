@@ -1,23 +1,33 @@
 import { getAdminSession } from "@/lib/admin/guard";
-import { getAllContributions } from "@/lib/db/queries";
+import { getAllContributions, getFlaggedContributions } from "@/lib/db/queries";
 import { degxForUsdc, getTier } from "@/lib/presale";
 import type { TierId } from "@/types/presale";
 
 export const dynamic = "force-dynamic";
 
-/** CSV of all confirmed contributions for post-graduation distribution (brief §10). */
+/**
+ * CSV of contributions for post-graduation distribution (brief §10). Includes a
+ * `status` column and the flagged ('pending') rows too, so the verified-on-chain
+ * payments that were flagged for manual review are visible/reconcilable here —
+ * only `confirmed` rows should be distributed.
+ */
 export async function GET() {
   if (!(await getAdminSession())) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const rows = await getAllContributions();
+  const [confirmed, flagged] = await Promise.all([
+    getAllContributions(),
+    getFlaggedContributions(),
+  ]);
+  const rows = [...confirmed, ...flagged];
   const header = [
     "wallet",
     "tier",
     "usdc",
     "degx_allocated",
     "tx_signature",
+    "status",
     "timestamp",
   ];
   const lines = [header.join(",")];
@@ -25,7 +35,7 @@ export async function GET() {
     const usdc = Number(r.amountUsdc);
     const degx = Math.round(degxForUsdc(usdc, getTier(r.tier as TierId).price));
     lines.push(
-      [r.wallet, r.tier, usdc, degx, r.txSig, r.createdAt.toISOString()].join(","),
+      [r.wallet, r.tier, usdc, degx, r.txSig, r.status, r.createdAt.toISOString()].join(","),
     );
   }
 

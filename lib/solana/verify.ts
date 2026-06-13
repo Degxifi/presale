@@ -15,10 +15,20 @@ export async function verifyUsdcContribution(
   claimedWallet: string,
 ): Promise<{ amount: number }> {
   const connection = new Connection(RPC_URL, "confirmed");
-  const tx = await connection.getParsedTransaction(signature, {
-    maxSupportedTransactionVersion: 0,
-    commitment: "confirmed",
-  });
+  // NOTE: commitment is "confirmed" (not "finalized") so recording is fast at
+  // launch. A confirmed-but-not-finalized slot could in theory be rolled back
+  // in a reorg; on mainnet this is rare and accepted for the presale window.
+  let tx;
+  try {
+    tx = await connection.getParsedTransaction(signature, {
+      maxSupportedTransactionVersion: 0,
+      commitment: "confirmed",
+    });
+  } catch {
+    // Contain the raw upstream JSON-RPC error (it can leak provider internals
+    // and serve as a probe oracle) behind a generic, safe message.
+    throw new Error("Couldn't reach the network to verify the transaction. Please try again.");
+  }
 
   if (!tx) throw new Error("Transaction not found or not yet confirmed.");
   if (tx.meta?.err) throw new Error("Transaction failed on-chain.");

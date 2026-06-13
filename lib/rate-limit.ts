@@ -59,18 +59,30 @@ export async function checkRateLimit(
 }
 
 /**
- * Best-effort client IP for rate-limit keys. Uses the RIGHTMOST
- * X-Forwarded-For entry: that's the one appended by OUR reverse proxy
- * (Traefik on Dokploy; Vercel likewise), so a client-supplied header can't
- * spoof it — the leftmost entry is attacker-controlled. Falls back to
- * "anonymous" when the IP is unknown; the limiter fails open anyway.
+ * Best-effort client IP for rate-limit keys.
+ *
+ * Order matters because the topology decides which header holds the REAL
+ * client IP:
+ *  - Behind Cloudflare (CF → Traefik), Traefik appends Cloudflare's edge IP as
+ *    the rightmost X-Forwarded-For entry, so the rightmost is NOT the visitor —
+ *    it's a CF PoP shared by thousands of users, which would collapse every
+ *    visitor into one rate-limit bucket (mass false 429s at launch). Cloudflare
+ *    puts the true client IP in `cf-connecting-ip`, so trust that FIRST.
+ *  - With only our own proxy (Traefik on Dokploy / Vercel, no CDN), there is no
+ *    cf-connecting-ip, and the RIGHTMOST X-Forwarded-For entry is the one our
+ *    proxy appended (the real client) — a client-supplied left entry can't spoof
+ *    it. Use that next.
+ * Falls back to "anonymous" when unknown; the limiter fails open anyway.
  */
 export function clientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  const last = forwarded
+  const h = request.headers;
+  const cf = h.get("cf-connecting-ip")?.trim() || h.get("true-client-ip")?.trim();
+  if (cf) return cf;
+  const last = h
+    .get("x-forwarded-for")
     ?.split(",")
     .map((s) => s.trim())
     .filter(Boolean)
     .at(-1);
-  return last || request.headers.get("x-real-ip")?.trim() || "anonymous";
+  return last || h.get("x-real-ip")?.trim() || "anonymous";
 }

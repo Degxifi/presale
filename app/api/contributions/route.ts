@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access";
-import { PRESALE_WALLET_ADDRESS, isPresaleConfigured } from "@/lib/solana/config";
+import {
+  PRESALE_WALLET_ADDRESS,
+  isLikelyTxSignature,
+  isLikelyWalletAddress,
+  isPresaleConfigured,
+} from "@/lib/solana/config";
 import { verifyUsdcContribution } from "@/lib/solana/verify";
 import {
   computeTierProgress,
@@ -9,13 +14,12 @@ import {
   getTier,
   isTierEligible,
   resolvePresaleStart,
+  tierUsdcCeiling,
 } from "@/lib/presale";
 import {
-  demoteContributionIfOverCap,
-  getRawStats,
+  getRaisedByTier,
   getSettings,
-  getWalletRaisedByTier,
-  recordContribution,
+  recordContributionWithCap,
 } from "@/lib/db/queries";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import type { TierId } from "@/types/presale";
@@ -42,9 +46,12 @@ export async function POST(request: Request) {
 
   // The site is public — anyone can buy the Public Presale. The signed access
   // cookie (set from a Degxifi dashboard link) only UNLOCKS the earlier rounds;
-  // read it here and enforce per-tier below.
+  // read it here and enforce per-tier below. expectCookie: only a value WE
+  // minted is accepted (not a raw entry token pasted in as a cookie).
   const cookieStore = await cookies();
-  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
+  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value, {
+    expectCookie: true,
+  });
 
   let body: unknown;
   try {
@@ -69,15 +76,24 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  // Validate base58 shape BEFORE any DB/RPC work, so arbitrary strings never
+  // reach the DB query or the RPC provider (and we don't leak provider errors).
+  if (!isLikelyWalletAddress(wallet) || !isLikelyTxSignature(txSig)) {
+    return NextResponse.json(
+      { error: "Invalid wallet or transaction signature." },
+      { status: 400 },
+    );
+  }
 
   const t = getTier(tier as TierId);
 
   // Enforce what the tier cards promise, server-side — checked BEFORE the
   // on-chain lookup so out-of-band submissions fail fast: the tier must be
   // OPEN (launch time + admin overrides), and round 1 (Early Believers) is
-  // reserved for tier-1 members (D-VIP/D-Pro 3-6).
-  const [{ raisedByTier }, settings] = await Promise.all([
-    getRawStats(),
+  // reserved for tier-1 members (D-VIP/D-Pro 3-6). Uses the lightweight
+  // SQL-aggregated per-tier totals (not a full-table fetch) on this hot path.
+  const [raisedByTier, settings] = await Promise.all([
+    getRaisedByTier(),
     getSettings(),
   ]);
   const phase = getPresalePhase(resolvePresaleStart(settings.presaleStart));
@@ -118,47 +134,40 @@ export async function POST(request: Request) {
       PRESALE_WALLET_ADDRESS,
       wallet,
     );
-    if (amount < t.minBuy - 0.01) {
-      return NextResponse.json(
-        { error: "Amount is below the tier minimum." },
-        { status: 400 },
-      );
-    }
 
-    const walletRaised = await getWalletRaisedByTier(wallet);
-    if (walletRaised[t.id] + amount > t.maxBuy + 0.01) {
-      return NextResponse.json(
-        {
-          error: `This wallet is over the ${t.name} per-wallet cap. Contact support about transaction ${txSig}.`,
-        },
-        { status: 400 },
-      );
-    }
-
-    await recordContribution({
+    // Record atomically and let the DB decide the row's status under a
+    // per-wallet lock. INVARIANT: a verified on-chain payment is NEVER dropped.
+    // Problem payments (below the tier minimum, over the per-wallet cap, or past
+    // the tier's token allocation) are stored as 'pending' (excluded from
+    // totals/caps) and flagged for manual review instead of being rejected and
+    // lost. Idempotent on txSig: a re-submit (even a third-party racing the
+    // buyer's own record call with a different tier) is a no-op.
+    const result = await recordContributionWithCap({
       wallet,
       tier: tier as TierId,
       amount,
       txSig,
       memberUid: access?.uid ?? null, // audit trail for shared-link abuse
+      minBuy: t.minBuy,
+      maxBuy: t.maxBuy,
+      tierCeiling: tierUsdcCeiling(t),
     });
 
-    // The pre-insert cap check above is read-then-insert, so concurrent buys
-    // can race past it — re-check now and flag the row for review if the
-    // wallet busted the cap. 200 (not an error): the payment IS recorded.
-    const overCap = await demoteContributionIfOverCap(
-      txSig,
-      wallet,
-      t.id,
-      t.maxBuy,
-    );
-    if (overCap) {
-      return NextResponse.json({
-        ok: true,
-        amount,
-        warning: `This payment put the wallet over the ${t.name} per-wallet cap, so it was flagged for manual review. Contact support about transaction ${txSig}.`,
-      });
+    if (!result.recorded) {
+      // Already recorded earlier (idempotent re-submit) — report success.
+      return NextResponse.json({ ok: true, amount });
     }
+
+    if (result.status === "pending") {
+      const warning =
+        result.reason === "below_min"
+          ? `This ${amount} USDC payment is below the ${t.name} minimum, so it was flagged for manual review. Contact support about transaction ${txSig}.`
+          : result.reason === "over_tier"
+            ? `${t.name} is fully allocated, so this payment was flagged for manual review. Contact support about transaction ${txSig}.`
+            : `This payment put the wallet over the ${t.name} per-wallet cap, so it was flagged for manual review. Contact support about transaction ${txSig}.`;
+      return NextResponse.json({ ok: true, amount, warning });
+    }
+
     return NextResponse.json({ ok: true, amount });
   } catch (e) {
     return NextResponse.json(

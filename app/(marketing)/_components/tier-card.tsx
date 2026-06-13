@@ -22,8 +22,7 @@ const VIS: Record<
 function statusLabel(status: TierStatus): string {
   if (status === "active") return "Open now";
   if (status === "paused") return "Paused";
-  if (status === "closed" || status === "ended" || status === "filled")
-    return "Closed";
+  if (status === "closed" || status === "ended") return "Closed";
   return "Opens at launch"; // all tiers open at launch (time-based, no targets)
 }
 
@@ -122,9 +121,13 @@ export function TierCard({
         )}
         {showCountdown && (
           <p className="mt-2 text-center text-sm text-muted">
-            Opens in{" "}
+            {/* Once the client clock passes startsAt, the countdown switches to
+                "Opening…" instead of leaving a dangling "Opens in " with no
+                value during the ≤12s until the next stats poll flips to active. */}
             <LaunchCountdown
               target={startsAt}
+              prefix="Opens in "
+              doneLabel="Opening…"
               className="text-base text-foreground"
             />
           </p>
