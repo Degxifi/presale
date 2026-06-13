@@ -1,4 +1,5 @@
 import {
+  ComputeBudgetProgram,
   Connection,
   PublicKey,
   TransactionMessage,
@@ -15,8 +16,12 @@ import { USDC_DECIMALS, USDC_MINT_ADDRESS } from "./config";
 export const usdcBaseUnits = (amount: number): bigint =>
   BigInt(Math.round(amount * 10 ** USDC_DECIMALS));
 
-/** Lamports the payer needs for the tx fee plus possible ATA rent. */
-const MIN_SOL_LAMPORTS = 2_000_000; // ~0.002 SOL
+/**
+ * Lamports the payer needs: ~5k base fee + ~6k priority fee + the ~0.00204 SOL
+ * rent-exempt minimum if THIS buyer has to create the recipient's USDC ATA
+ * (only the very first contributor — after that the ATA already exists).
+ */
+const MIN_SOL_LAMPORTS = 2_060_000; // ~0.00206 SOL
 
 /**
  * Pre-flight funds check so buyers get a clear message instead of an opaque
@@ -45,7 +50,7 @@ export async function checkFunds(
 
   const lamports = await connection.getBalance(payer);
   if (lamports < MIN_SOL_LAMPORTS) {
-    return "You need a small amount of SOL (~0.002) in your wallet to pay network fees.";
+    return "You need a small amount of SOL (~0.0021) in your wallet to pay network fees.";
   }
   return null;
 }
@@ -68,12 +73,18 @@ export async function buildUsdcTransfer(
   payer: PublicKey,
   recipientWallet: PublicKey,
   amount: number,
-): Promise<VersionedTransaction> {
+): Promise<{ tx: VersionedTransaction; lastValidBlockHeight: number }> {
   const mint = new PublicKey(USDC_MINT_ADDRESS);
   const fromAta = getAssociatedTokenAddressSync(mint, payer);
   const toAta = getAssociatedTokenAddressSync(mint, recipientWallet);
 
   const instructions = [
+    // Priority fee so the transfer lands promptly under launch-day congestion
+    // (without it, a tx can sit unconfirmed past the 60s confirm window). The
+    // unit limit is generous for an idempotent-ATA + transfer; at ~120k CU the
+    // fee is ~0.000006 SOL — negligible and covered by the checkFunds SOL floor.
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
     createAssociatedTokenAccountIdempotentInstruction(
       payer, // payer (funds the account if it must be created)
       toAta,
@@ -90,36 +101,65 @@ export async function buildUsdcTransfer(
     ),
   ];
 
-  const { blockhash } = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
   const message = new TransactionMessage({
     payerKey: payer,
     recentBlockhash: blockhash,
     instructions,
   }).compileToV0Message();
-  return new VersionedTransaction(message);
+  // lastValidBlockHeight lets the caller distinguish a dropped/expired tx from a
+  // slow one during confirmation (skipPreflight has no preflight to reject it).
+  return { tx: new VersionedTransaction(message), lastValidBlockHeight };
 }
 
 /**
  * Confirm a signature by polling getSignatureStatuses over HTTP (works through
  * the RPC proxy, which has no WebSocket — so we avoid connection.confirmTransaction).
+ *
+ * Throws one of three distinct, terminal errors: "failed on-chain" (the tx ran
+ * and errored), "expired before confirming" (the blockhash lapsed with no status
+ * — the tx will never land; only checked when `lastValidBlockHeight` is given),
+ * or a generic timeout. Transient RPC errors (429 from the per-IP proxy limit,
+ * network blips) are swallowed and polling continues, so a rate-limit blip
+ * during confirmation never surfaces as a scary failure for a paid tx. The 2.5s
+ * interval keeps the worst-case call count within the proxy's per-minute limit.
  */
 export async function confirmSignature(
   connection: Connection,
   signature: string,
-  timeoutMs = 60_000,
+  lastValidBlockHeight?: number,
+  timeoutMs = 90_000,
 ): Promise<void> {
   const start = Date.now();
+  let polls = 0;
   while (Date.now() - start < timeoutMs) {
-    const { value } = await connection.getSignatureStatuses([signature]);
-    const status = value[0];
-    if (status?.err) throw new Error("Transaction failed on-chain.");
-    if (
-      status?.confirmationStatus === "confirmed" ||
-      status?.confirmationStatus === "finalized"
-    ) {
-      return;
+    try {
+      const { value } = await connection.getSignatureStatuses([signature]);
+      const status = value[0];
+      if (status?.err) throw new Error("Transaction failed on-chain.");
+      if (
+        status?.confirmationStatus === "confirmed" ||
+        status?.confirmationStatus === "finalized"
+      ) {
+        return;
+      }
+      // No status yet and the blockhash has expired → the tx will never land
+      // (skipPreflight means nothing rejected it up front). Fail fast and
+      // distinctly so the UI prompts a retry instead of a false "still
+      // confirming" success. Checked occasionally to limit RPC calls.
+      if (lastValidBlockHeight !== undefined && !status && polls % 3 === 2) {
+        const height = await connection.getBlockHeight();
+        if (height > lastValidBlockHeight) {
+          throw new Error("Transaction expired before confirming — please try again.");
+        }
+      }
+    } catch (e) {
+      const m = e instanceof Error ? e.message : "";
+      if (/failed on-chain|expired before confirming/i.test(m)) throw e;
+      // else transient (429/network) — keep polling
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    polls++;
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
   }
   throw new Error("Confirmation timed out — check the transaction on Solscan.");
 }

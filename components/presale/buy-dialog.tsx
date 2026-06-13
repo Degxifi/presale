@@ -173,17 +173,61 @@ export function BuyDialog({
       }
 
       const recipient = new PublicKey(PRESALE_WALLET_ADDRESS);
-      const tx = await buildUsdcTransfer(connection, publicKey, recipient, value);
-      const signature = await sendTransaction(tx, connection);
-      await confirmSignature(connection, signature);
-
+      const { tx, lastValidBlockHeight } = await buildUsdcTransfer(
+        connection,
+        publicKey,
+        recipient,
+        value,
+      );
+      // skipPreflight: a transient preflight "signature verification failure"
+      // was failing the buy in the UI even though the transaction broadcast and
+      // LANDED (funds moved). Skip preflight and treat confirmSignature (polling
+      // the signature on-chain) as the source of truth, so a preflight
+      // false-negative can't report a successful payment as failed. A genuinely
+      // bad tx still surfaces via confirmSignature (on-chain err / expiry / timeout).
+      const signature = await sendTransaction(tx, connection, {
+        skipPreflight: true,
+        maxRetries: 5,
+      });
+      // Capture the signature immediately so the user always keeps the tx link,
+      // even if confirmation lags.
       setSig(signature);
-      setStatus("success");
 
-      // Record off-chain with retries; if it still fails, the success screen
-      // shows a save-your-transaction warning instead of failing silently.
+      // Terminal failures (on-chain error, or blockhash expired with no status →
+      // the tx never landed) are real errors and must NOT show success. A plain
+      // TIMEOUT is different — with skipPreflight the tx may still be landing — so
+      // there we show success + a "still confirming" note and let the
+      // server-verified recorder count it once it lands.
+      let stillConfirming = false;
+      try {
+        await confirmSignature(connection, signature, lastValidBlockHeight);
+      } catch (e) {
+        const m = e instanceof Error ? e.message : "";
+        if (/failed on-chain|expired before confirming/i.test(m)) {
+          setStatus("error");
+          setError(
+            /expired/i.test(m)
+              ? "Your transaction expired before confirming — no funds were transferred. Please try again."
+              : "Your transaction failed on-chain — no funds were transferred. Please try again.",
+          );
+          return;
+        }
+        stillConfirming = true; // timed out; the tx may still land
+      }
+
+      setStatus("success");
+      if (stillConfirming) {
+        setRecordWarning(
+          "Still confirming on-chain — this can take a moment during high traffic. We've saved your transaction (link above) and your allocation is counted automatically once it confirms.",
+        );
+      }
+
+      // Record off-chain with retries — the server re-verifies on-chain, so a
+      // slow confirmation never loses the payment. Always set the result: a
+      // clean record (null) CLEARS any "still confirming" note; a persistent
+      // failure replaces it with a save-your-transaction warning.
       void recordWithRetry(owner, tier.id, signature).then((failure) => {
-        if (failure) setRecordWarning(failure);
+        setRecordWarning(failure);
       });
     } catch (e) {
       setStatus("error");
