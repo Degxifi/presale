@@ -184,13 +184,39 @@ export function BuyDialog({
         skipPreflight: true,
         maxRetries: 5,
       });
-      await confirmSignature(connection, signature);
-
+      // Capture the signature immediately so the user always keeps the tx link,
+      // even if confirmation lags.
       setSig(signature);
-      setStatus("success");
 
-      // Record off-chain with retries; if it still fails, the success screen
-      // shows a save-your-transaction warning instead of failing silently.
+      // A genuine on-chain failure is a real error. A confirmation TIMEOUT is
+      // NOT — with skipPreflight the tx may still be landing — so never discard a
+      // paid contribution on timeout: show success, note it's still confirming,
+      // and let the (server-verified) recorder count it once it lands.
+      let stillConfirming = false;
+      try {
+        await confirmSignature(connection, signature);
+      } catch (e) {
+        const m = e instanceof Error ? e.message : "";
+        if (/failed on-chain/i.test(m)) {
+          setStatus("error");
+          setError(
+            "Your transaction failed on-chain — no funds were transferred. Please try again.",
+          );
+          return;
+        }
+        stillConfirming = true; // timed out; the tx may still land
+      }
+
+      setStatus("success");
+      if (stillConfirming) {
+        setRecordWarning(
+          "Still confirming on-chain — this can take a moment during high traffic. We've saved your transaction (link above) and your allocation is counted automatically once it confirms.",
+        );
+      }
+
+      // Record off-chain with retries — the server re-verifies on-chain, so a
+      // slow confirmation never loses the payment. A persistent failure replaces
+      // the note above with a save-your-transaction warning.
       void recordWithRetry(owner, tier.id, signature).then((failure) => {
         if (failure) setRecordWarning(failure);
       });

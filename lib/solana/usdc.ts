@@ -1,4 +1,5 @@
 import {
+  ComputeBudgetProgram,
   Connection,
   PublicKey,
   TransactionMessage,
@@ -74,6 +75,12 @@ export async function buildUsdcTransfer(
   const toAta = getAssociatedTokenAddressSync(mint, recipientWallet);
 
   const instructions = [
+    // Priority fee so the transfer lands promptly under launch-day congestion
+    // (without it, a tx can sit unconfirmed past the 60s confirm window). The
+    // unit limit is generous for an idempotent-ATA + transfer; at ~120k CU the
+    // fee is ~0.000006 SOL — negligible and covered by the checkFunds SOL floor.
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
     createAssociatedTokenAccountIdempotentInstruction(
       payer, // payer (funds the account if it must be created)
       toAta,
