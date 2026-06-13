@@ -63,7 +63,7 @@ export function TierControls({ initial }: { initial: Overrides }) {
                   [
                     ["Auto", null],
                     ["Paused", "paused"],
-                    ["Closed", "closed"],
+                    ["Sold Out", "closed"],
                   ] as const
                 ).map(([label, val]) => {
                   const active = cur === val;

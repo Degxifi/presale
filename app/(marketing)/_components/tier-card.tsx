@@ -22,7 +22,7 @@ const VIS: Record<
 function statusLabel(status: TierStatus): string {
   if (status === "active") return "Open now";
   if (status === "paused") return "Paused";
-  if (status === "closed" || status === "ended") return "Closed";
+  if (status === "closed" || status === "ended") return "Sold Out";
   return "Opens at launch"; // all tiers open at launch (time-based, no targets)
 }
 
