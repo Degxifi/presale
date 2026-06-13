@@ -33,6 +33,10 @@ export const TIERS = [
     impliedMarketCap: 360_000,
     tokensAvailable: 83_300_000,
     raiseTarget: 30_000,
+    // Display-only baseline so Early Believers reads as completed/Sold Out:
+    // real ~$23.77K + this offset reaches the $30K target → auto "filled".
+    // Real buys/caps/allocation are untouched (server uses real amounts).
+    raisedBoost: 6_229,
     minBuy: 50,
     maxBuy: 2_000,
     estWallets: { min: 60, max: 600 },
