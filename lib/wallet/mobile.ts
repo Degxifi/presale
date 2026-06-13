@@ -18,7 +18,15 @@ export function needsInAppBrowser(
   wallets: readonly { readyState: WalletReadyState }[],
 ): boolean {
   if (!isMobileBrowser()) return false;
-  return !wallets.some((w) => w.readyState === WalletReadyState.Installed);
+  // Installed = injected and ready; Loadable = present but still registering.
+  // Accept either so an injecting in-app wallet (Phantom/Solflare browser) isn't
+  // briefly treated as "no wallet" and shown the redirect sheet before it flips
+  // to Installed.
+  return !wallets.some(
+    (w) =>
+      w.readyState === WalletReadyState.Installed ||
+      w.readyState === WalletReadyState.Loadable,
+  );
 }
 
 /**

@@ -1,5 +1,6 @@
 import { and, countDistinct, desc, eq, sql } from "drizzle-orm";
 import type { TierId } from "@/types/presale";
+import { degxForUsdc, getTier } from "@/lib/presale";
 import { db } from "./index";
 import { appSettings, contributions } from "./schema";
 import { user as authUser } from "./auth-schema";
@@ -146,6 +147,7 @@ export async function recordContributionWithCap(input: {
       wallet,
       tier,
       amountUsdc: String(amount), // numeric column takes a string
+      degxAllocated: String(degxForUsdc(amount, getTier(tier).price)),
       txSig,
       memberUid: input.memberUid ?? null,
       status,

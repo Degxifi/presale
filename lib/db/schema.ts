@@ -35,6 +35,11 @@ export const contributions = pgTable(
     wallet: text("wallet").notNull(),
     tier: smallint("tier").notNull(),
     amountUsdc: numeric("amount_usdc", { precision: 20, scale: 6 }).notNull(),
+    // $DEGX the buyer receives at distribution = amount_usdc / tier price. Stored
+    // (not just derived) so the row is self-contained for the airdrop and to lock
+    // the allocation to the tier at record time. Recomputed if the tier is
+    // re-resolved (reconciliation). Nullable for pre-column rows until backfilled.
+    degxAllocated: numeric("degx_allocated", { precision: 30, scale: 9 }),
     txSig: text("tx_sig").notNull().unique(), // on-chain signature (idempotency)
     // Degxifi member uid from the access cookie (tiers 1-2) — audit trail for
     // shared-link abuse. Null for public (tier 3) buys.

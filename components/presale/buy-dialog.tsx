@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import { Check, ExternalLink, Loader2 } from "lucide-react";
+import { Check, Clock, ExternalLink, Loader2 } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { buildUsdcTransfer, checkFunds, confirmSignature } from "@/lib/solana/usdc";
@@ -16,21 +16,29 @@ import { degxForUsdc, isTierEligible } from "@/lib/presale";
 import { degx, shortWallet, tokenPrice, usd } from "@/lib/format";
 import type { Tier, TierId } from "@/types/presale";
 
-type Status = "idle" | "submitting" | "success" | "error";
+type Status = "idle" | "submitting" | "success" | "unconfirmed" | "error";
 
 /**
- * Record a confirmed payment with retries — the on-chain tx is the source of
- * truth, but this row is what distribution/caps are built from, so a silent
- * drop is the worst failure. Backoff (2s/8s/30s) outlasts a 60s rate-limit
- * window and RPC propagation lag. Returns null when cleanly recorded, else
- * the warning text to show on the success screen.
+ * Outcome of recording a contribution off-chain (the server re-verifies the tx
+ * on-chain, so it is the source of truth for whether the payment landed):
+ *  - recorded:  the server saw the tx and stored it (warning set if flagged).
+ *  - not-found: after retries the server still can't find the tx → it did not
+ *               land (don't push the buyer to support).
+ *  - infra:     couldn't reach/record (network/5xx) — the tx may have landed, so
+ *               tell the buyer to save it.
  */
+type RecordOutcome =
+  | { kind: "recorded"; warning: string | null }
+  | { kind: "not-found" }
+  | { kind: "infra" };
+
 async function recordWithRetry(
   wallet: string,
   tier: TierId,
   txSig: string,
-): Promise<string | null> {
-  let lastError = "recording request failed";
+): Promise<RecordOutcome> {
+  // Backoff (2s/8s/30s) outlasts a 60s rate-limit window + RPC propagation lag.
+  let lastKind: "not-found" | "infra" = "infra";
   for (const delay of [0, 2_000, 8_000, 30_000]) {
     if (delay) await new Promise((r) => setTimeout(r, delay));
     try {
@@ -43,13 +51,19 @@ async function recordWithRetry(
         error?: string;
         warning?: string;
       } | null;
-      if (res.ok) return data?.warning ?? null; // recorded (maybe flagged)
-      lastError = data?.error ?? `HTTP ${res.status}`;
+      if (res.ok) return { kind: "recorded", warning: data?.warning ?? null };
+      // The server couldn't verify the tx on-chain → it hasn't landed (vs an
+      // infrastructure error, which means we just couldn't record a maybe-landed tx).
+      lastKind = /not found|not yet confirmed|failed on-chain|no usdc/i.test(
+        data?.error ?? "",
+      )
+        ? "not-found"
+        : "infra";
     } catch {
-      lastError = "network error";
+      lastKind = "infra";
     }
   }
-  return `Your payment is confirmed on-chain, but we couldn't record it automatically (${lastError}). Save the transaction link above and contact support so your allocation is counted.`;
+  return { kind: lastKind };
 }
 
 /** A wallet's confirmed raised amount in a tier (for cumulative cap checks). */
@@ -80,6 +94,9 @@ export function BuyDialog({
   const [error, setError] = useState<string | null>(null);
   const [sig, setSig] = useState<string | null>(null);
   const [recordWarning, setRecordWarning] = useState<string | null>(null);
+  // Bumped on every submit and on close, so a late recordWithRetry().then from a
+  // prior buy (it can resolve ~40s later) can't write into the current view.
+  const submitId = useRef(0);
 
   const value = Number(amount);
   const valid =
@@ -87,6 +104,7 @@ export function BuyDialog({
   const estimate = valid ? degxForUsdc(value, tier.price) : 0;
 
   const close = () => {
+    submitId.current++;
     setAmount("");
     setStatus("idle");
     setError(null);
@@ -97,6 +115,7 @@ export function BuyDialog({
 
   const submit = async () => {
     setError(null);
+    setRecordWarning(null); // never carry a prior buy's warning into this one
     if (!publicKey) return setError("Connect your wallet first.");
     if (!isPresaleConfigured())
       return setError("The presale wallet isn't configured yet — check back at launch.");
@@ -105,6 +124,7 @@ export function BuyDialog({
         `Enter an amount between ${usd(tier.minBuy)} and ${usd(tier.maxBuy)}.`,
       );
 
+    const myId = ++submitId.current;
     try {
       setStatus("submitting");
       const owner = publicKey.toBase58();
@@ -173,63 +193,59 @@ export function BuyDialog({
       }
 
       const recipient = new PublicKey(PRESALE_WALLET_ADDRESS);
-      const { tx, lastValidBlockHeight } = await buildUsdcTransfer(
-        connection,
-        publicKey,
-        recipient,
-        value,
-      );
-      // skipPreflight: a transient preflight "signature verification failure"
-      // was failing the buy in the UI even though the transaction broadcast and
-      // LANDED (funds moved). Skip preflight and treat confirmSignature (polling
-      // the signature on-chain) as the source of truth, so a preflight
-      // false-negative can't report a successful payment as failed. A genuinely
-      // bad tx still surfaces via confirmSignature (on-chain err / expiry / timeout).
+      const tx = await buildUsdcTransfer(connection, publicKey, recipient, value);
+      // skipPreflight: a transient preflight "signature verification failure" was
+      // failing the buy even though the tx broadcast and LANDED. Skip preflight
+      // and treat on-chain confirmation as the source of truth.
       const signature = await sendTransaction(tx, connection, {
         skipPreflight: true,
         maxRetries: 5,
       });
-      // Capture the signature immediately so the user always keeps the tx link,
-      // even if confirmation lags.
+      // Capture the signature immediately so the user always keeps the tx link.
       setSig(signature);
 
-      // Terminal failures (on-chain error, or blockhash expired with no status →
-      // the tx never landed) are real errors and must NOT show success. A plain
-      // TIMEOUT is different — with skipPreflight the tx may still be landing — so
-      // there we show success + a "still confirming" note and let the
-      // server-verified recorder count it once it lands.
-      let stillConfirming = false;
+      // On-chain error → real failure (no funds moved). A timeout is NOT a
+      // failure and NOT a success — we genuinely don't know yet, so we show an
+      // honest "submitted, couldn't confirm" state (never claim success, never
+      // auto-prompt a retry that could double-pay). The server-verified recorder
+      // resolves the real outcome below.
+      let confirmed = false;
       try {
-        await confirmSignature(connection, signature, lastValidBlockHeight);
+        await confirmSignature(connection, signature);
+        confirmed = true;
       } catch (e) {
-        const m = e instanceof Error ? e.message : "";
-        if (/failed on-chain|expired before confirming/i.test(m)) {
+        if (/failed on-chain/i.test(e instanceof Error ? e.message : "")) {
           setStatus("error");
           setError(
-            /expired/i.test(m)
-              ? "Your transaction expired before confirming — no funds were transferred. Please try again."
-              : "Your transaction failed on-chain — no funds were transferred. Please try again.",
+            "Your transaction failed on-chain — no funds were transferred. Please try again.",
           );
           return;
         }
-        stillConfirming = true; // timed out; the tx may still land
+        // timeout — outcome unknown
       }
+      setStatus(confirmed ? "success" : "unconfirmed");
 
-      setStatus("success");
-      if (stillConfirming) {
-        setRecordWarning(
-          "Still confirming on-chain — this can take a moment during high traffic. We've saved your transaction (link above) and your allocation is counted automatically once it confirms.",
-        );
-      }
-
-      // Record off-chain with retries — the server re-verifies on-chain, so a
-      // slow confirmation never loses the payment. Always set the result: a
-      // clean record (null) CLEARS any "still confirming" note; a persistent
-      // failure replaces it with a save-your-transaction warning.
-      void recordWithRetry(owner, tier.id, signature).then((failure) => {
-        setRecordWarning(failure);
+      // Record off-chain with retries; the server re-verifies on-chain.
+      void recordWithRetry(owner, tier.id, signature).then((res) => {
+        if (submitId.current !== myId) return; // stale (closed / newer submit)
+        if (res.kind === "recorded") {
+          setStatus("success");
+          setRecordWarning(res.warning); // null clears; non-null = flagged note
+        } else if (res.kind === "not-found" && !confirmed) {
+          // The tx didn't land (server can't find it after ~40s). Keep the
+          // honest "unconfirmed" screen; don't push the buyer to support.
+          setStatus("unconfirmed");
+          setRecordWarning(null);
+        } else {
+          // Confirmed-but-unrecorded, or an infra failure: the payment likely
+          // landed — tell the buyer to save it.
+          setRecordWarning(
+            `We couldn't record your transaction automatically. Save the transaction link above and contact support about ${signature.slice(0, 12)}… so your allocation is counted.`,
+          );
+        }
       });
     } catch (e) {
+      if (submitId.current !== myId) return;
       setStatus("error");
       const message = e instanceof Error ? e.message : "";
       const owner = publicKey?.toBase58();
@@ -244,7 +260,11 @@ export function BuyDialog({
   };
 
   const title =
-    status === "success" ? "Contribution confirmed" : `Buy $DEGX · ${tier.name}`;
+    status === "success"
+      ? "Contribution confirmed"
+      : status === "unconfirmed"
+        ? "Transaction submitted"
+        : `Buy $DEGX · ${tier.name}`;
 
   return (
     <Dialog open={open} onClose={close} title={title}>
@@ -270,6 +290,37 @@ export function BuyDialog({
           <p className="text-xs leading-relaxed text-muted">
             Your $DEGX is distributed to this wallet after the presale graduates at
             a $600K market cap. Contributions are non-refundable.
+          </p>
+          {recordWarning && (
+            <p className="rounded-xl border border-border bg-surface-2 p-3 text-left text-xs leading-relaxed text-danger">
+              {recordWarning}
+            </p>
+          )}
+          <Button variant="secondary" className="w-full" onClick={close}>
+            Done
+          </Button>
+        </div>
+      ) : status === "unconfirmed" && sig ? (
+        <div className="space-y-5 text-center">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-surface-2">
+            <Clock className="size-6 text-muted" />
+          </div>
+          <p className="text-sm leading-relaxed text-muted">
+            We submitted your transaction but couldn&apos;t confirm it in time
+            (the network can be slow under load).
+          </p>
+          <a
+            href={solscanTx(sig)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+          >
+            Check it on Solscan <ExternalLink className="size-3.5" />
+          </a>
+          <p className="text-xs leading-relaxed text-muted">
+            If it shows success, your allocation is counted automatically — no
+            action needed. If it failed or isn&apos;t there, you can safely try
+            again. Please don&apos;t assume it went through.
           </p>
           {recordWarning && (
             <p className="rounded-xl border border-border bg-surface-2 p-3 text-left text-xs leading-relaxed text-danger">

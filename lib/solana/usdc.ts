@@ -73,7 +73,7 @@ export async function buildUsdcTransfer(
   payer: PublicKey,
   recipientWallet: PublicKey,
   amount: number,
-): Promise<{ tx: VersionedTransaction; lastValidBlockHeight: number }> {
+): Promise<VersionedTransaction> {
   const mint = new PublicKey(USDC_MINT_ADDRESS);
   const fromAta = getAssociatedTokenAddressSync(mint, payer);
   const toAta = getAssociatedTokenAddressSync(mint, recipientWallet);
@@ -101,37 +101,37 @@ export async function buildUsdcTransfer(
     ),
   ];
 
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+  const { blockhash } = await connection.getLatestBlockhash();
   const message = new TransactionMessage({
     payerKey: payer,
     recentBlockhash: blockhash,
     instructions,
   }).compileToV0Message();
-  // lastValidBlockHeight lets the caller distinguish a dropped/expired tx from a
-  // slow one during confirmation (skipPreflight has no preflight to reject it).
-  return { tx: new VersionedTransaction(message), lastValidBlockHeight };
+  return new VersionedTransaction(message);
 }
 
 /**
  * Confirm a signature by polling getSignatureStatuses over HTTP (works through
  * the RPC proxy, which has no WebSocket — so we avoid connection.confirmTransaction).
  *
- * Throws one of three distinct, terminal errors: "failed on-chain" (the tx ran
- * and errored), "expired before confirming" (the blockhash lapsed with no status
- * — the tx will never land; only checked when `lastValidBlockHeight` is given),
- * or a generic timeout. Transient RPC errors (429 from the per-IP proxy limit,
- * network blips) are swallowed and polling continues, so a rate-limit blip
- * during confirmation never surfaces as a scary failure for a paid tx. The 2.5s
- * interval keeps the worst-case call count within the proxy's per-minute limit.
+ * Resolves on confirmation; throws "Transaction failed on-chain." if the tx ran
+ * and errored; throws "Confirmation timed out." if it neither confirms nor errors
+ * within the window. We deliberately do NOT try to detect blockhash expiry here:
+ * the only signal (getBlockHeight) isn't on the proxy allowlist, and more
+ * importantly a near-boundary status-propagation lag could mislabel a LANDED tx
+ * as expired and prompt a retry → double-payment. So a timeout is reported as an
+ * honest "couldn't confirm" (the caller must NOT claim success or auto-retry) and
+ * the server-verified recorder decides the real outcome. Transient RPC errors
+ * (429 from the per-IP limit, network blips) are swallowed so a blip never
+ * surfaces as a scary failure for a paid tx; the 2.5s interval keeps the
+ * worst-case call count within the proxy's per-minute limit.
  */
 export async function confirmSignature(
   connection: Connection,
   signature: string,
-  lastValidBlockHeight?: number,
   timeoutMs = 90_000,
 ): Promise<void> {
   const start = Date.now();
-  let polls = 0;
   while (Date.now() - start < timeoutMs) {
     try {
       const { value } = await connection.getSignatureStatuses([signature]);
@@ -143,23 +143,12 @@ export async function confirmSignature(
       ) {
         return;
       }
-      // No status yet and the blockhash has expired → the tx will never land
-      // (skipPreflight means nothing rejected it up front). Fail fast and
-      // distinctly so the UI prompts a retry instead of a false "still
-      // confirming" success. Checked occasionally to limit RPC calls.
-      if (lastValidBlockHeight !== undefined && !status && polls % 3 === 2) {
-        const height = await connection.getBlockHeight();
-        if (height > lastValidBlockHeight) {
-          throw new Error("Transaction expired before confirming — please try again.");
-        }
-      }
     } catch (e) {
       const m = e instanceof Error ? e.message : "";
-      if (/failed on-chain|expired before confirming/i.test(m)) throw e;
+      if (/failed on-chain/i.test(m)) throw e;
       // else transient (429/network) — keep polling
     }
-    polls++;
     await new Promise((resolve) => setTimeout(resolve, 2_500));
   }
-  throw new Error("Confirmation timed out — check the transaction on Solscan.");
+  throw new Error("Confirmation timed out.");
 }
