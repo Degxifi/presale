@@ -112,23 +112,33 @@ export function getPresalePhase(
 
 /**
  * Derive per-tier progress + status from raised amounts. All tiers open
- * SIMULTANEOUSLY at launch (time-based only — no raise-target fill): every tier
- * is "active" while the presale is live; eligibility (isTierEligible) decides who
- * can buy each. Pure — no time access (caller supplies the phase).
+ * SIMULTANEOUSLY at launch; eligibility (isTierEligible) decides who can buy
+ * each. A tier auto-Sells-Out ("filled") once its raised reaches the target.
+ *
+ * `applyBoost` adds each tier's display-only `raisedBoost` to the figure — set
+ * it ONLY on the public stats path (so the cards/counter show the boosted
+ * momentum number and sell out at the SHOWN target). Leave it false for the
+ * admin view and the contribution route, which must work off REAL raised. Pure
+ * — no time access (caller supplies the phase).
  */
 export function computeTierProgress(
   raisedByTier: Record<TierId, number>,
   phase: PresalePhase,
   overrides: Partial<Record<TierId, "paused" | "closed">> = {},
+  applyBoost = false,
 ): TierProgress[] {
   return TIERS.map((tier) => {
-    const raised = raisedByTier[tier.id] ?? 0;
+    const raised =
+      (raisedByTier[tier.id] ?? 0) +
+      (applyBoost ? (tier as Tier).raisedBoost ?? 0 : 0);
 
     let status: TierStatus;
     if (phase === "ended") {
       status = "ended";
     } else if (phase === "live") {
-      status = "active";
+      // Fill-based auto Sold Out: once raised reaches the target, stop showing
+      // it as open. Time-based "active" otherwise.
+      status = raised >= tier.raiseTarget ? "filled" : "active";
     } else {
       status = "upcoming";
     }

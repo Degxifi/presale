@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { TIERS } from "@/lib/constants";
 import {
   computeTierProgress,
   getPresalePhase,
@@ -12,7 +13,7 @@ import {
   type RawStats,
 } from "@/lib/db/queries";
 import { shortWallet } from "@/lib/format";
-import type { PresaleStats } from "@/types/presale";
+import type { PresaleStats, Tier } from "@/types/presale";
 
 export const dynamic = "force-dynamic"; // always live
 
@@ -74,14 +75,24 @@ export async function GET() {
   const phase = getPresalePhase(startsAt);
   const endsAt = presaleEndsAt(new Date(startsAt)).toISOString();
 
+  // PUBLIC display only: while live, add each tier's display baseline so the
+  // cards + total counter show the boosted momentum figure and a tier auto-Sells-
+  // Out when its SHOWN total hits the target. Real raised (and recorded
+  // contributions) are untouched — admin + the contribution route use real.
+  const applyBoost = phase === "live";
+  const boostSum = applyBoost
+    ? TIERS.reduce((s, t) => s + ((t as Tier).raisedBoost ?? 0), 0)
+    : 0;
+
   const stats: PresaleStats = {
-    totalRaised: raisedByTier[1] + raisedByTier[2] + raisedByTier[3],
+    totalRaised:
+      raisedByTier[1] + raisedByTier[2] + raisedByTier[3] + boostSum,
     phase,
     participantCount,
     startsAt,
     endsAt,
     announcement: settings.announcement,
-    tiers: computeTierProgress(raisedByTier, phase, settings.tierOverrides),
+    tiers: computeTierProgress(raisedByTier, phase, settings.tierOverrides, applyBoost),
     // Public payload: display-form wallet + truncated sig (the feed only needs
     // a unique key) — don't make the contributor list trivially scrapeable.
     recentBuys: recent.map((r) => ({
