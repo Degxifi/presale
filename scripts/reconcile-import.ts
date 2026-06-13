@@ -77,7 +77,8 @@ async function main() {
 
   type Plan = {
     sig: string; wallet: string; amount: number; at: Date;
-    tier: TierId | null; how: string; memberUid: string | null;
+    tier: TierId | null; status: "confirmed" | "pending" | null;
+    how: string; memberUid: string | null;
   };
   const plans: Plan[] = [];
   const failed: string[] = [];
@@ -102,54 +103,66 @@ async function main() {
       const amount = Number(delta) / 10 ** USDC_DECIMALS;
       const wallet = tx.transaction.message.accountKeys[0]?.pubkey.toBase58() ?? "unknown";
 
-      // Resolve tier.
+      // Resolve tier + status.
+      //  - CONFIRMED (provable tier): wallet has recorded rows → reuse its tier;
+      //    or amount > Tier-2 cap → must be Tier 1.
+      //  - PENDING (ambiguous): no recorded row and <= $1000 — park as 'pending'
+      //    (flagged for manual review; excluded from totals/caps/distribution)
+      //    with a placeholder tier the admin corrects: <=$500 → T3, else → T2.
+      //  - SKIP: sub-$50 dust / below-min — not a valid contribution.
       let tier: TierId | null = null;
+      let status: "confirmed" | "pending" | null = null;
       let how = "";
       const known = walletTiers.get(wallet);
       if (known && known.size > 0) {
         const fits = [...known].filter((t) => amount <= maxBuy(t as TierId) + 0.01).sort((a, b) => a - b);
         tier = (fits[0] ?? Math.min(...known)) as TierId;
-        how = `matched-wallet(${[...known].sort().join("/")})`;
+        status = "confirmed";
+        how = "matched-wallet";
       } else if (amount > maxBuy(2) + 0.01) {
-        tier = 1; how = "amount>tier2cap→tier1";
+        tier = 1; status = "confirmed"; how = "amount>tier2cap→tier1";
+      } else if (amount < 50) {
+        how = "dust/below-min(skip)";
+      } else if (amount <= maxBuy(3) + 0.01) {
+        tier = 3; status = "pending"; how = "ambiguous→pending(<=500,placeholderT3)";
       } else {
-        tier = null; how = "ambiguous";
+        tier = 2; status = "pending"; how = "ambiguous→pending(500-1000,placeholderT2)";
       }
-      plans.push({ sig, wallet, amount, at: new Date((tx.blockTime ?? 0) * 1000), tier, how, memberUid: walletUid.get(wallet) ?? null });
+      plans.push({ sig, wallet, amount, at: new Date((tx.blockTime ?? 0) * 1000), tier, status, how, memberUid: walletUid.get(wallet) ?? null });
     }
     await sleep(150);
   }
 
   // Report buckets.
-  const resolved = plans.filter((p) => p.tier !== null);
-  const ambiguous = plans.filter((p) => p.tier === null);
   const sum = (a: Plan[]) => a.reduce((s, p) => s + p.amount, 0);
+  const confirmed = plans.filter((p) => p.status === "confirmed");
+  const pending = plans.filter((p) => p.status === "pending");
+  const dust = plans.filter((p) => p.status === null);
+  const toInsert = [...confirmed, ...pending];
   const byHow = new Map<string, { n: number; usd: number }>();
-  for (const p of resolved) {
-    const k = p.how.startsWith("matched") ? "matched-wallet" : p.how;
-    const e = byHow.get(k) ?? { n: 0, usd: 0 };
-    e.n++; e.usd += p.amount; byHow.set(k, e);
+  for (const p of toInsert) {
+    const e = byHow.get(p.how) ?? { n: 0, usd: 0 };
+    e.n++; e.usd += p.amount; byHow.set(p.how, e);
   }
   console.log("=== RESOLUTION PLAN ===");
-  for (const [k, e] of byHow) console.log(`  ${k}: ${e.n} payment(s), $${e.usd.toFixed(2)}`);
-  console.log(`  ambiguous (NOT inserted): ${ambiguous.length} payment(s), $${sum(ambiguous).toFixed(2)}`);
-  console.log(`  TOTAL resolved: ${resolved.length} / ${plans.length}, $${sum(resolved).toFixed(2)}`);
+  for (const [k, e] of byHow) console.log(`  ${k}: ${e.n}, $${e.usd.toFixed(2)}`);
+  console.log(
+    `  → confirmed ${confirmed.length} ($${sum(confirmed).toFixed(2)}) · pending ${pending.length} ($${sum(pending).toFixed(2)}) · dust/skip ${dust.length}`,
+  );
   if (failed.length) console.log(`  ⚠ ${failed.length} sig(s) could not be inspected (RPC error) — re-run.`);
 
-  console.log("\n=== AMBIGUOUS (need a tier decision) ===");
-  for (const p of ambiguous.sort((a, b) => a.amount - b.amount)) {
-    console.log(`  ${p.amount.toFixed(2)} USDC  ${p.wallet}  ${p.sig}`);
-  }
-
   if (!COMMIT) {
-    console.log("\nDRY-RUN — no writes. Re-run with --commit to insert the RESOLVED rows.");
+    console.log(
+      `\nDRY-RUN — no writes. Re-run with --commit to insert ${toInsert.length} rows (${confirmed.length} confirmed, ${pending.length} pending). ${dust.length} dust/below-min skipped.`,
+    );
     process.exit(0);
   }
 
-  // Commit: insert resolved rows as 'confirmed' (idempotent on tx_sig).
-  console.log(`\nCOMMITTING ${resolved.length} resolved rows…`);
+  // Commit: insert each row at its resolved status (idempotent on tx_sig). Dust
+  // (status null) is never inserted.
+  console.log(`\nCOMMITTING ${toInsert.length} rows (${confirmed.length} confirmed, ${pending.length} pending)…`);
   let inserted = 0, skipped = 0;
-  for (const p of resolved) {
+  for (const p of toInsert) {
     try {
       await db.insert(contributions).values({
         wallet: p.wallet,
@@ -157,7 +170,7 @@ async function main() {
         amountUsdc: String(p.amount),
         txSig: p.sig,
         memberUid: p.memberUid,
-        status: "confirmed",
+        status: p.status!,
         createdAt: p.at,
       });
       inserted++;
@@ -167,7 +180,7 @@ async function main() {
       console.error(`  FAILED ${p.sig}:`, e);
     }
   }
-  console.log(`Done. Inserted ${inserted}, skipped ${skipped} (already present). Ambiguous left untouched: ${ambiguous.length}.`);
+  console.log(`Done. Inserted ${inserted}, skipped ${skipped} (already present). Dust/below-min not inserted: ${dust.length}.`);
   process.exit(0);
 }
 
