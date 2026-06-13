@@ -77,7 +77,12 @@ export async function recordContributionWithCap(input: {
   const { wallet, tier, amount, txSig, minBuy, maxBuy, tierCeiling } = input;
 
   return db.transaction(async (tx) => {
-    // Serialize this wallet's buys so the cap decision can't race.
+    // Serialize this WALLET's buys so the per-wallet cap + idempotency decision
+    // can't race. Deliberately NOT a per-tier lock: that would make the tier
+    // ceiling a hard stop but serialize ALL buys to a tier, and lock-waiters
+    // hold a pooled DB connection while blocked → connection-pool exhaustion
+    // under a launch spike (a far worse failure than a small boundary
+    // over-allocation). So the per-tier ceiling below stays best-effort.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${wallet})::bigint)`);
 
     // Idempotency: if this tx is already recorded, return its CURRENT state and

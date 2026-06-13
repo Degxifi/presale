@@ -28,9 +28,13 @@ export async function POST(request: Request) {
   if ("announcement" in b) patch.announcement = b.announcement ? String(b.announcement) : null;
   if ("presaleStart" in b) {
     const v = b.presaleStart ? String(b.presaleStart) : null;
-    // Reject an unparseable date here (returns 400) instead of letting an
-    // Invalid Date reach the driver and throw an opaque 500 on write.
-    if (v !== null && Number.isNaN(new Date(v).getTime())) {
+    // Require a STRICT ISO-8601 date(-time), not just `new Date()`-parseable:
+    // `new Date("1")` etc. parse to a real (wrong) date, which would silently
+    // shift the launch time. The admin UI sends `new Date(...).toISOString()`,
+    // which matches. Reject anything else with a 400.
+    const ISO_RE =
+      /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+    if (v !== null && (!ISO_RE.test(v) || Number.isNaN(new Date(v).getTime()))) {
       return NextResponse.json(
         { error: "Invalid presaleStart — use an ISO date/time." },
         { status: 400 },
@@ -38,9 +42,14 @@ export async function POST(request: Request) {
     }
     patch.presaleStart = v;
   }
-  if ("tierOverrides" in b && b.tierOverrides && typeof b.tierOverrides === "object") {
+  if (
+    "tierOverrides" in b &&
+    b.tierOverrides &&
+    typeof b.tierOverrides === "object" &&
+    !Array.isArray(b.tierOverrides) // arrays are objects; reject [..] payloads
+  ) {
     // Whitelist: only tiers 1-3 with the two real override values survive, so
-    // junk/arrays can't be persisted into the jsonb column.
+    // junk can't be persisted into the jsonb column.
     const raw = b.tierOverrides as Record<string, unknown>;
     const clean: AppSettings["tierOverrides"] = {};
     for (const id of [1, 2, 3] as const) {

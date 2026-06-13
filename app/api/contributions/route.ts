@@ -153,18 +153,20 @@ export async function POST(request: Request) {
       tierCeiling: tierUsdcCeiling(t),
     });
 
-    if (!result.recorded) {
-      // Already recorded earlier (idempotent re-submit) — report success.
-      return NextResponse.json({ ok: true, amount });
-    }
-
+    // Branch on the row's STATUS, not on whether THIS call did the insert: an
+    // idempotent re-submit (result.recorded === false) of a previously-flagged
+    // payment must still surface as flagged, or the buyer sees a plain success
+    // and never learns it needs manual review. `reason` is only known when this
+    // call inserted the row, so fall back to a generic flag message on retries.
     if (result.status === "pending") {
       const warning =
         result.reason === "below_min"
           ? `This ${amount} USDC payment is below the ${t.name} minimum, so it was flagged for manual review. Contact support about transaction ${txSig}.`
           : result.reason === "over_tier"
             ? `${t.name} is fully allocated, so this payment was flagged for manual review. Contact support about transaction ${txSig}.`
-            : `This payment put the wallet over the ${t.name} per-wallet cap, so it was flagged for manual review. Contact support about transaction ${txSig}.`;
+            : result.reason === "over_cap"
+              ? `This payment put the wallet over the ${t.name} per-wallet cap, so it was flagged for manual review. Contact support about transaction ${txSig}.`
+              : `This payment is flagged for manual review. Contact support about transaction ${txSig}.`;
       return NextResponse.json({ ok: true, amount, warning });
     }
 
