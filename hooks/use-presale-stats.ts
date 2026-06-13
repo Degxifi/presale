@@ -11,7 +11,9 @@ export function usePresaleStats(pollMs = 12_000): PresaleStats | null {
     let active = true;
     const load = async () => {
       try {
-        const res = await fetch("/api/presale/stats", { cache: "no-store" });
+        // No `no-store`: let the CDN/browser honor the endpoint's short
+        // s-maxage so a launch-day crowd is served from cache, not the DB.
+        const res = await fetch("/api/presale/stats");
         if (!res.ok) return;
         const data = (await res.json()) as PresaleStats;
         if (active) setStats(data);
