@@ -37,9 +37,12 @@ export async function GET() {
     // flagged ('pending') rows so a status-unaware distribution script that
     // sums this column can't over-allocate to a flagged wallet; the usdc +
     // status columns still expose them for reconciliation.
+    // Floor (not round): the per-tier ceiling bounds total USDC so tokens sold
+    // <= the fixed pool in exact arithmetic; rounding UP per row could let the
+    // summed allocation drift past the pool. Flooring can never over-allocate.
     const degx =
       r.status === "confirmed"
-        ? Math.round(degxForUsdc(usdc, getTier(r.tier as TierId).price))
+        ? Math.floor(degxForUsdc(usdc, getTier(r.tier as TierId).price))
         : 0;
     lines.push(
       [r.wallet, r.tier, usdc, degx, r.txSig, r.status, r.createdAt.toISOString()].join(","),

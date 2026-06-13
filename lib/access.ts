@@ -111,7 +111,12 @@ export async function verifyAccessToken(
   if (typeof payload.exp !== "number" || payload.exp * 1000 < Date.now()) {
     return null;
   }
-  if (opts.expectCookie && payload.typ !== "cookie") {
+  // Accept legacy cookies that predate the typ field (minted 2026-06-11→06-12,
+  // 7-day expiry → gone by ~06-18): treat a MISSING typ as a legacy cookie so
+  // early members aren't locked out of rounds 1/2 on launch day. Still reject a
+  // token whose typ is some OTHER value. Tighten to strict `!== "cookie"` once
+  // all pre-typ cookies have expired.
+  if (opts.expectCookie && payload.typ !== undefined && payload.typ !== "cookie") {
     return null;
   }
   return payload;
