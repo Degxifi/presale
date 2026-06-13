@@ -23,15 +23,16 @@ export function needsInAppBrowser(
 
 /**
  * "Browse" universal links that open `targetUrl` inside each wallet's in-app
- * browser. Formats per the wallets' own docs:
- *  - Phantom:  https://phantom.app/ul/browse/<url>?ref=<ref>   (url appended raw)
+ * browser. Both wallets' docs specify the <url> path segment URL-encoded:
+ *  - Phantom:  https://phantom.app/ul/browse/<enc-url>?ref=<enc-ref>
  *  - Solflare: https://solflare.com/ul/v1/browse/<enc-url>?ref=<enc-ref>
  * Jupiter Mobile has no documented browse link, so it uses the copy-link path.
  */
 export function walletBrowseLinks(targetUrl: string) {
-  const ref = encodeURIComponent(targetUrl);
+  const enc = encodeURIComponent(targetUrl);
+  const ref = enc;
   return {
-    phantom: `https://phantom.app/ul/browse/${targetUrl}?ref=${ref}`,
-    solflare: `https://solflare.com/ul/v1/browse/${encodeURIComponent(targetUrl)}?ref=${ref}`,
+    phantom: `https://phantom.app/ul/browse/${enc}?ref=${ref}`,
+    solflare: `https://solflare.com/ul/v1/browse/${enc}?ref=${ref}`,
   };
 }
