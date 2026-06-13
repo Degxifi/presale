@@ -1,4 +1,9 @@
-import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import {
   createAssociatedTokenAccountIdempotentInstruction,
   createTransferCheckedInstruction,
@@ -46,30 +51,35 @@ export async function checkFunds(
 }
 
 /**
- * Build a USDC transfer from `payer` to `recipientWallet`. Creates the
- * recipient's USDC token account if it doesn't exist yet (idempotent). The
- * returned transaction carries the blockhash used, for confirmation.
+ * Build a USDC transfer from `payer` to `recipientWallet` as a v0
+ * VersionedTransaction. Creates the recipient's USDC token account if it doesn't
+ * exist yet (idempotent).
+ *
+ * Why versioned (not legacy `Transaction`): wallets — especially mobile / Mobile
+ * Wallet Adapter — sign v0 transactions far more reliably. A legacy
+ * `Transaction.serialize()` (which the wallet adapter calls inside
+ * `sendTransaction`) throws "Signature verification failed. Missing signature
+ * for public key …" when the wallet returns the tx unsigned; the v0 path avoids
+ * that failure mode. The blockhash is fetched right before compiling so it isn't
+ * stale by the time the wallet signs.
  */
 export async function buildUsdcTransfer(
   connection: Connection,
   payer: PublicKey,
   recipientWallet: PublicKey,
   amount: number,
-): Promise<Transaction> {
+): Promise<VersionedTransaction> {
   const mint = new PublicKey(USDC_MINT_ADDRESS);
   const fromAta = getAssociatedTokenAddressSync(mint, payer);
   const toAta = getAssociatedTokenAddressSync(mint, recipientWallet);
 
-  const tx = new Transaction();
-  tx.add(
+  const instructions = [
     createAssociatedTokenAccountIdempotentInstruction(
       payer, // payer (funds the account if it must be created)
       toAta,
       recipientWallet,
       mint,
     ),
-  );
-  tx.add(
     createTransferCheckedInstruction(
       fromAta,
       mint,
@@ -78,14 +88,15 @@ export async function buildUsdcTransfer(
       usdcBaseUnits(amount),
       USDC_DECIMALS,
     ),
-  );
+  ];
 
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
-  tx.recentBlockhash = blockhash;
-  tx.lastValidBlockHeight = lastValidBlockHeight;
-  tx.feePayer = payer;
-  return tx;
+  const { blockhash } = await connection.getLatestBlockhash();
+  const message = new TransactionMessage({
+    payerKey: payer,
+    recentBlockhash: blockhash,
+    instructions,
+  }).compileToV0Message();
+  return new VersionedTransaction(message);
 }
 
 /**

@@ -13,7 +13,7 @@ import {
   solscanTx,
 } from "@/lib/solana/config";
 import { degxForUsdc, isTierEligible } from "@/lib/presale";
-import { degx, tokenPrice, usd } from "@/lib/format";
+import { degx, shortWallet, tokenPrice, usd } from "@/lib/format";
 import type { Tier, TierId } from "@/types/presale";
 
 type Status = "idle" | "submitting" | "success" | "error";
@@ -188,10 +188,13 @@ export function BuyDialog({
     } catch (e) {
       setStatus("error");
       const message = e instanceof Error ? e.message : "";
+      const owner = publicKey?.toBase58();
       setError(
-        /broadcast|status code 500|simulat/i.test(message)
-          ? "Your wallet couldn't broadcast the transaction. Make sure you have enough USDC and some SOL for fees, then try again."
-          : message || "Transaction failed. Please try again.",
+        /missing signature|signature verification/i.test(message)
+          ? `Your wallet didn't sign the transaction. Make sure you approve with the account you connected${owner ? ` (${shortWallet(owner)})` : ""}, then try again.`
+          : /broadcast|status code 500|simulat/i.test(message)
+            ? "Your wallet couldn't broadcast the transaction. Make sure you have enough USDC and some SOL for fees, then try again."
+            : message || "Transaction failed. Please try again.",
       );
     }
   };
