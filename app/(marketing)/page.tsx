@@ -49,7 +49,6 @@ export default async function PresaleLandingPage() {
         <SectionHeader
           eyebrow="Profit Scenarios"
           title="What you could make"
-          description="Illustrative ROI by entry tier at different market caps — conditional on reaching each cap, not guaranteed."
         />
         <Reveal className="mx-auto mt-12 max-w-3xl">
           <RoiScenarios />
