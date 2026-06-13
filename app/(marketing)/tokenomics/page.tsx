@@ -87,7 +87,6 @@ export default function TokenomicsPage() {
         <SectionHeader
           eyebrow="Profit Scenarios"
           title="ROI by entry tier"
-          description="Conditional on reaching each market cap — not guaranteed."
         />
         <div className="mx-auto mt-12 max-w-3xl">
           <RoiScenarios />
