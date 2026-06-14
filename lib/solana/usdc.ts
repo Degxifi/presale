@@ -24,9 +24,31 @@ export const usdcBaseUnits = (amount: number): bigint =>
 const MIN_SOL_LAMPORTS = 2_060_000; // ~0.00206 SOL
 
 /**
+ * True when a getTokenAccountBalance error AUTHORITATIVELY means the token
+ * account doesn't exist (so the wallet really holds no USDC there) — as opposed
+ * to a transient RPC failure. The Solana RPC returns -32602 "could not find
+ * account" for a missing account; a 429 (the proxy's per-IP rate limit) or a
+ * network blip does NOT, and must never be read as a zero balance.
+ */
+function isAccountNotFound(e: unknown): boolean {
+  const code = (e as { code?: unknown })?.code;
+  const msg = e instanceof Error ? e.message : "";
+  return code === -32602 || /could not find account|find account/i.test(msg);
+}
+
+/**
  * Pre-flight funds check so buyers get a clear message instead of an opaque
  * wallet broadcast error. Returns a user-facing problem description, or null
  * when the wallet can cover `amount` USDC plus network fees.
+ *
+ * CRITICAL: it must distinguish "the wallet holds no USDC" from "we couldn't
+ * read the balance." The balance is read through the rate-limited /api/rpc proxy
+ * (60 req/min per IP); on a shared mobile/NAT IP a 429 or transient error is
+ * common. Treating that as a 0 balance (the old behavior) hard-blocked funded
+ * buyers with a false "current balance: 0.00 USDC". So we retry transient
+ * failures and, if the balance still can't be determined, FAIL OPEN (return
+ * null / allow the buy) rather than fabricate a zero — the wallet and the
+ * on-chain transfer remain the real guard for a genuinely underfunded wallet.
  */
 export async function checkFunds(
   connection: Connection,
@@ -36,21 +58,40 @@ export async function checkFunds(
   const mint = new PublicKey(USDC_MINT_ADDRESS);
   const fromAta = getAssociatedTokenAddressSync(mint, payer);
 
-  let usdcBalance = BigInt(0);
-  try {
-    const { value } = await connection.getTokenAccountBalance(fromAta);
-    usdcBalance = BigInt(value.amount);
-  } catch {
-    // Token account doesn't exist — the wallet holds no USDC.
+  // null = could not determine (transient failure); BigInt = an authoritative
+  // reading (including a genuine 0 when the ATA doesn't exist).
+  let usdcBalance: bigint | null = null;
+  for (const delay of [0, 800, 2_500]) {
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    try {
+      const { value } = await connection.getTokenAccountBalance(fromAta);
+      usdcBalance = BigInt(value.amount);
+      break;
+    } catch (e) {
+      if (isAccountNotFound(e)) {
+        usdcBalance = BigInt(0); // ATA doesn't exist → no USDC held here
+        break;
+      }
+      // transient (429/network/provider) — retry; stays null if all attempts fail
+    }
   }
-  if (usdcBalance < usdcBaseUnits(amount)) {
+
+  // Only block on a balance we actually read. If it's undetermined, don't
+  // fabricate "0.00 USDC" — let the buyer proceed.
+  if (usdcBalance !== null && usdcBalance < usdcBaseUnits(amount)) {
     const held = Number(usdcBalance) / 10 ** USDC_DECIMALS;
     return `You need at least ${amount} USDC in your wallet (current balance: ${held.toFixed(2)} USDC).`;
   }
 
-  const lamports = await connection.getBalance(payer);
-  if (lamports < MIN_SOL_LAMPORTS) {
-    return "You need a small amount of SOL (~0.0021) in your wallet to pay network fees.";
+  // SOL fee check — also tolerate an unreadable result rather than false-blocking
+  // a funded buyer; a truly fee-starved tx fails clearly without moving USDC.
+  try {
+    const lamports = await connection.getBalance(payer);
+    if (lamports < MIN_SOL_LAMPORTS) {
+      return "You need a small amount of SOL (~0.0021) in your wallet to pay network fees.";
+    }
+  } catch {
+    // couldn't read SOL balance (transient) — proceed
   }
   return null;
 }
