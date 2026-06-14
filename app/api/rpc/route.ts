@@ -31,19 +31,32 @@ const ALLOWED_METHODS = new Set([
 
 export async function POST(request: Request) {
   // Deter cross-site browser abuse of our RPC quota (server callers can spoof,
-  // so this is a deterrent — the rate limit below is the real backstop). Match
-  // the Origin's HOST exactly, not by suffix: `endsWith(host)` would accept any
-  // sibling like evilpresale.degxifi.com (it ends with presale.degxifi.com).
+  // so this is only a deterrent — the per-IP rate limit below is the real
+  // backstop). Match the Origin's HOST exactly, not by suffix: an `endsWith`
+  // check would accept any sibling like evilpresale.degxifi.com.
+  //
+  // CRUCIAL: fail OPEN on anything ambiguous. A mobile wallet in-app browser
+  // commonly sends `Origin: null` (an opaque origin), and behind the reverse
+  // proxy the raw `Host` header can be an internal name. Treating those as a
+  // mismatch (the old behavior) returned 403 on EVERY RPC call — blockhash,
+  // balance, send — locking real buyers out of the presale. So we only reject a
+  // CLEARLY cross-site origin: one that parses to a host different from the
+  // public host the browser actually used.
   const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (origin && host) {
+  if (origin && origin !== "null") {
     let originHost: string | null = null;
     try {
-      originHost = new URL(origin).host;
+      originHost = new URL(origin).host.toLowerCase();
     } catch {
-      originHost = null;
+      originHost = null; // unparseable → treat as opaque, fail open
     }
-    if (originHost !== host) {
+    // Prefer the forwarded host (the domain the browser used) over the raw Host
+    // header, which behind Traefik/Dokploy can be an internal hostname.
+    const fwd = request.headers.get("x-forwarded-host");
+    const host = (fwd ? fwd.split(",")[0] : request.headers.get("host"))
+      ?.trim()
+      .toLowerCase();
+    if (originHost && host && originHost !== host) {
       return new Response("Forbidden", { status: 403 });
     }
   }
