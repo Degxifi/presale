@@ -165,6 +165,9 @@ export async function POST(request: Request) {
     // and never learns it needs manual review. `reason` is only known when this
     // call inserted the row, so fall back to a generic flag message on retries.
     if (result.status === "pending") {
+      console.warn(
+        `[contrib] flagged pending reason=${result.reason ?? "unknown"} wallet=${wallet} tier=${tier} amount=${amount} sig=${txSig}`,
+      );
       const warning =
         result.reason === "below_min"
           ? `This ${amount} USDC payment is below the ${t.name} minimum, so it was flagged for manual review. Contact support about transaction ${txSig}.`
@@ -176,8 +179,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, amount, warning });
     }
 
+    if (result.recorded) {
+      console.info(
+        `[contrib] recorded wallet=${wallet} tier=${tier} amount=${amount} sig=${txSig}`,
+      );
+    }
     return NextResponse.json({ ok: true, amount });
   } catch (e) {
+    console.error(
+      `[contrib] verify/record failed wallet=${wallet} tier=${tier} sig=${txSig}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Verification failed." },
       { status: 400 },
