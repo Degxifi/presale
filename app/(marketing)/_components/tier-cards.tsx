@@ -3,6 +3,7 @@
 import { TIERS } from "@/lib/constants";
 import { usePresaleStats } from "@/hooks/use-presale-stats";
 import { isTierEligible } from "@/lib/presale";
+import { WalletRaisedProvider } from "@/components/presale/wallet-raised-context";
 import type { TierStatus } from "@/types/presale";
 import { TierCard } from "./tier-card";
 
@@ -19,23 +20,29 @@ export function TierCards({ accessTier = null }: { accessTier?: 1 | 2 | null }) 
   const featuredId = TIERS.find((t) => isTierEligible(t.id, accessTier))?.id;
 
   return (
-    <div className="grid gap-5 md:grid-cols-3">
-      {TIERS.map((tier) => {
-        const live = stats?.tiers.find((t) => t.tierId === tier.id);
-        const raised = live?.raised ?? 0;
-        const status: TierStatus = live?.status ?? "upcoming";
-        return (
-          <TierCard
-            key={tier.id}
-            tier={tier}
-            raised={raised}
-            status={status}
-            featured={tier.id === featuredId}
-            accessTier={accessTier}
-            startsAt={stats?.startsAt ?? null}
-          />
-        );
-      })}
-    </div>
+    // One shared fetch of the connected wallet's contributions for all three
+    // cards (and their buy dialogs), so the "You've contributed …" line is
+    // accurate, refreshes after a buy, and doesn't hit the rate-limited
+    // /api/wallet endpoint three times per load.
+    <WalletRaisedProvider>
+      <div className="grid gap-5 md:grid-cols-3">
+        {TIERS.map((tier) => {
+          const live = stats?.tiers.find((t) => t.tierId === tier.id);
+          const raised = live?.raised ?? 0;
+          const status: TierStatus = live?.status ?? "upcoming";
+          return (
+            <TierCard
+              key={tier.id}
+              tier={tier}
+              raised={raised}
+              status={status}
+              featured={tier.id === featuredId}
+              accessTier={accessTier}
+              startsAt={stats?.startsAt ?? null}
+            />
+          );
+        })}
+      </div>
+    </WalletRaisedProvider>
   );
 }
