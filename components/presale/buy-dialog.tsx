@@ -14,6 +14,10 @@ import {
 } from "@/lib/solana/config";
 import { degxForUsdc, isTierEligible } from "@/lib/presale";
 import { degx, shortWallet, tokenPrice, usd } from "@/lib/format";
+import {
+  fetchWalletRaisedOnce,
+  useWalletRaised,
+} from "@/components/presale/wallet-raised-context";
 import type { Tier, TierId } from "@/types/presale";
 
 type Status = "idle" | "submitting" | "success" | "unconfirmed" | "error";
@@ -66,13 +70,16 @@ async function recordWithRetry(
   return { kind: lastKind };
 }
 
-/** A wallet's confirmed raised amount in a tier (for cumulative cap checks). */
+/**
+ * A wallet's confirmed raised amount in a tier (for the pre-send cumulative cap
+ * check). Best-effort: fail-OPEN to 0 on any error so a transient blip can't
+ * block a legitimate buy — the server re-enforces the cap atomically under a
+ * per-wallet lock and flags a true over-cap payment as 'pending', so this client
+ * check only needs to catch the common case before funds move.
+ */
 async function getWalletTierRaised(wallet: string, tier: TierId): Promise<number> {
   try {
-    const res = await fetch(`/api/wallet/${wallet}`, { cache: "no-store" });
-    if (!res.ok) return 0;
-    const data = await res.json();
-    return Number(data?.raisedByTier?.[tier] ?? 0);
+    return (await fetchWalletRaisedOnce(wallet))[tier];
   } catch {
     return 0;
   }
@@ -89,6 +96,9 @@ export function BuyDialog({
 }) {
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
+  // Refresh the shared per-wallet contribution state so every card's
+  // "You've contributed …" line updates the moment a buy is recorded.
+  const { refresh: refreshWalletRaised } = useWalletRaised();
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -231,6 +241,10 @@ export function BuyDialog({
         if (res.kind === "recorded") {
           setStatus("success");
           setRecordWarning(res.warning); // null clears; non-null = flagged note
+          // The DB row now exists → update the cap line under every tier card
+          // without a page reload. (Flagged/'pending' buys are excluded from the
+          // confirmed total by design, so the figure only moves for counted ones.)
+          refreshWalletRaised();
         } else if (res.kind === "not-found" && !confirmed) {
           // The tx didn't land (server can't find it after ~40s). Keep the
           // honest "unconfirmed" screen; don't push the buyer to support.
