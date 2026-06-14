@@ -24,9 +24,16 @@ export async function verifyUsdcContribution(
       maxSupportedTransactionVersion: 0,
       commitment: "confirmed",
     });
-  } catch {
-    // Contain the raw upstream JSON-RPC error (it can leak provider internals
-    // and serve as a probe oracle) behind a generic, safe message.
+  } catch (e) {
+    // Log the REAL upstream error server-side (a suspended/blown RPC provider
+    // returning 401/403/429 here silently breaks contribution recording — this
+    // makes it visible in the container logs). The client still gets a generic,
+    // safe message so we don't leak provider internals / a probe oracle.
+    console.error(
+      `[verify] getParsedTransaction failed sig=${signature}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
     throw new Error("Couldn't reach the network to verify the transaction. Please try again.");
   }
 
