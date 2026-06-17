@@ -4,7 +4,6 @@ import { tokenPrice, usdCompact } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
-import { PresaleCountdown } from "@/components/marketing/presale-countdown";
 
 export function Hero() {
   return (
@@ -30,10 +29,6 @@ export function Hero() {
           graduating to Jupiter Studio at a {usdCompact(TOKEN.graduationMarketCap)}{" "}
           market cap.
         </p>
-
-        <div className="mt-10">
-          <PresaleCountdown />
-        </div>
 
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row">
           <Link href="#tiers" className={buttonVariants({ size: "lg" })}>
