@@ -23,6 +23,7 @@ export type PlanRecipient = {
   wallet: string;
   owed: bigint; // base units to send this tranche
   target: bigint; // cumulative cap at this unlock — the WAL atomic guard uses it
+  allocated: bigint; // full 100% allocation (base units)
 };
 
 export type DistributionPlan = {
@@ -86,7 +87,7 @@ export async function buildPlan(
     const target = unlockedTarget(totalBase, unlockBps);
     const owed = target - distributed - inflightAmt;
     if (owed > 0n) {
-      recipients.push({ wallet, owed, target });
+      recipients.push({ wallet, owed, target, allocated: totalBase });
       owedTotal += owed;
     }
   }

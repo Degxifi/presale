@@ -30,7 +30,11 @@ export const ATA_RENT_LAMPORTS = 2_039_280; // rent-exempt min for a token accou
 export const LAMPORTS_PER_SOL = 1_000_000_000;
 export const BATCH_SIZE = 8; // transfers per transaction (fits the 1232-byte limit)
 
-export type PlanRecipient = { wallet: string; owed: string }; // owed in base units
+export type PlanRecipient = {
+  wallet: string;
+  owed: string; // base units to send this tranche
+  allocated: string; // full 100% allocation (base units)
+};
 export type DistributionPlan = {
   configured: boolean; // true once a valid mint is set and loadable
   mint: string; // "" until the admin sets it
@@ -38,6 +42,7 @@ export type DistributionPlan = {
   decimals: number;
   transferFeeBps: number; // >0 means recipients receive LESS than sent (warn)
   unlockBps: number;
+  cluster: string; // "" mainnet | "devnet" | "testnet" — for Solscan links
   recipients: PlanRecipient[];
   totals: {
     recipientCount: number;

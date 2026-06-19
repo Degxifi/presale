@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { type DistributionPlan, formatTokens } from "@/lib/solana/distribute";
 import { ImportPanel } from "./import-panel";
+import { RecipientsTable } from "./recipients-table";
 
 const PRESETS = [40, 60, 80, 100]; // cumulative unlock % (TGE 40, then vesting)
 
@@ -116,6 +117,14 @@ export function DistributionPanel() {
               </div>
             ))}
           </div>
+
+          {/* who receives what — per-wallet breakdown for this tranche */}
+          <RecipientsTable
+            recipients={plan.recipients}
+            decimals={dec}
+            unlock={unlock}
+            cluster={plan.cluster ?? ""}
+          />
 
           {/* release a tranche — CLI only */}
           <div className="rounded-2xl border border-border bg-surface p-6">

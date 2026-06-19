@@ -18,6 +18,11 @@ const ZERO_TOTALS = {
   owedTotal: "0",
 };
 
+const cluster = (() => {
+  const u = process.env.SOLANA_RPC_URL || "";
+  return u.includes("devnet") ? "devnet" : u.includes("testnet") ? "testnet" : "";
+})();
+
 /**
  * Distribution plan for a given unlock %. The $DEGX mint is owned by the script
  * and read from env (DEGX_MINT), so this view uses the same value the CLI pays
@@ -39,7 +44,8 @@ export async function GET(request: Request) {
     decimals: 0,
     transferFeeBps: 0,
     unlockBps,
-    recipients: [] as { wallet: string; owed: string }[],
+    cluster,
+    recipients: [] as { wallet: string; owed: string; allocated: string }[],
     totals: ZERO_TOTALS,
   };
   if (!degxMint)
@@ -56,7 +62,12 @@ export async function GET(request: Request) {
         decimals: plan.decimals,
         transferFeeBps: plan.transferFeeBps,
         unlockBps,
-        recipients: plan.recipients.map((r) => ({ wallet: r.wallet, owed: r.owed.toString() })),
+        cluster,
+        recipients: plan.recipients.map((r) => ({
+          wallet: r.wallet,
+          owed: r.owed.toString(),
+          allocated: r.allocated.toString(),
+        })),
         totals: {
           recipientCount: plan.recipients.length,
           allocatedTotal: plan.allocatedTotal.toString(),
