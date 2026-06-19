@@ -2,6 +2,7 @@ import { getSession, isAdmin, isAdminConfigured } from "@/lib/admin/guard";
 import { AdminShell } from "../_components/admin-shell";
 import { AdminLogin } from "../_components/admin-login";
 import { DistributionPanel } from "./_components/distribution-panel";
+import { DistributionsTable } from "./_components/distributions-table";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,10 @@ export default async function DistributePage() {
   }
   return (
     <AdminShell email={session.user.email}>
-      <DistributionPanel />
+      <div className="space-y-6">
+        <DistributionPanel />
+        <DistributionsTable />
+      </div>
     </AdminShell>
   );
 }

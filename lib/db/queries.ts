@@ -1,4 +1,4 @@
-import { and, countDistinct, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, countDistinct, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { TierId } from "@/types/presale";
 import { degxAllocationFloor, degxForUsdc, getTier } from "@/lib/presale";
 import { db } from "./index";
@@ -450,6 +450,33 @@ export type DistributionRow = {
   inflightSig: string | null;
   inflightLvbh: number | null;
 };
+
+/** Per-wallet distribution view for the dashboard: every wallet that has been
+ * paid (or has an in-flight transfer), biggest first, with the on-chain
+ * signatures that delivered it. */
+export type DistributionView = {
+  wallet: string;
+  distributed: string; // base units
+  sigs: string[]; // confirmed transfer signatures (the proof)
+  inflight: boolean; // a transfer is mid-flight right now
+  updatedAt: string; // ISO
+};
+
+export async function getDistributions(): Promise<DistributionView[]> {
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(distributions)
+    .where(or(sql`${distributions.distributed}::numeric > 0`, isNotNull(distributions.inflightSig)))
+    .orderBy(desc(sql`${distributions.distributed}::numeric`));
+  return rows.map((r) => ({
+    wallet: r.wallet,
+    distributed: r.distributed,
+    sigs: r.sigs ?? [],
+    inflight: !!r.inflightSig,
+    updatedAt: r.updatedAt.toISOString(),
+  }));
+}
 
 /** Ledger state per wallet (cumulative distributed + any in-flight WAL entry). */
 export async function getDistributionRows(): Promise<DistributionRow[]> {
