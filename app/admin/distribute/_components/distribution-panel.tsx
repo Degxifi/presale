@@ -1,51 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey } from "@solana/web3.js";
-import bs58 from "bs58";
 import { Loader2 } from "lucide-react";
-import {
-  BATCH_SIZE,
-  type BatchRecipient,
-  type DistributionPlan,
-  buildUnsignedBatch,
-  degxAta,
-  fetchMissingAtas,
-  formatTokens,
-} from "@/lib/solana/distribute";
-import { confirmSignature } from "@/lib/solana/usdc";
+import { type DistributionPlan, formatTokens } from "@/lib/solana/distribute";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { ConnectWalletButton } from "@/components/wallet/connect-wallet-button";
 import { ImportPanel } from "./import-panel";
 
 const PRESETS = [40, 60, 80, 100]; // cumulative unlock % (TGE 40, then vesting)
-const WAVE = 4; // batches signed + sent per wallet approval
-const PRIORITY = 20_000; // µLamports/CU — helps land on a congested launch day
 
 const fmtErr = (e: unknown) => (e instanceof Error ? e.message : String(e));
-function chunk<T>(a: T[], n: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n));
-  return out;
-}
 
+/**
+ * Setup + monitoring for $DEGX distribution. Read-only for the payout itself —
+ * the actual transfers are run from the CLI (`bun run distribute`), which signs
+ * with the treasury key in the environment. This panel sets the mint, imports
+ * the master list, and shows the plan; the Distributions view below shows what
+ * has been paid. No wallet is connected here and nothing is sent from the browser.
+ */
 export function DistributionPanel() {
-  const { connection } = useConnection();
-  const { publicKey, connected, signAllTransactions } = useWallet();
   const [unlock, setUnlock] = useState(40);
   const [plan, setPlan] = useState<DistributionPlan | null>(null);
   const [loading, setLoading] = useState(false);
-  const [running, setRunning] = useState(false);
   const [savingMint, setSavingMint] = useState(false);
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
-  const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [treasury, setTreasury] = useState<{ degx: bigint; sol: number } | null>(null);
   const mintRef = useRef<HTMLInputElement>(null);
-
-  const addLog = (m: string) => setLog((l) => [...l, m]);
 
   const loadPlan = useCallback(async (pct: number) => {
     setLoading(true);
@@ -68,32 +46,6 @@ export function DistributionPanel() {
     return () => cancelAnimationFrame(raf);
   }, [unlock, loadPlan]);
 
-  // treasury (connected wallet) balances
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      if (!connected || !publicKey || !plan?.configured) {
-        setTreasury(null);
-        return;
-      }
-      try {
-        const mint = new PublicKey(plan.mint);
-        const programId = new PublicKey(plan.tokenProgram);
-        const [degxRes, lamports] = await Promise.all([
-          connection.getTokenAccountBalance(degxAta(mint, publicKey, programId)).catch(() => null),
-          connection.getBalance(publicKey),
-        ]);
-        if (active)
-          setTreasury({ degx: degxRes ? BigInt(degxRes.value.amount) : 0n, sol: lamports / 1e9 });
-      } catch {
-        if (active) setTreasury(null);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [connected, publicKey, plan, connection]);
-
   const saveMint = useCallback(async () => {
     const v = mintRef.current?.value.trim() ?? "";
     setSavingMint(true);
@@ -113,114 +65,9 @@ export function DistributionPanel() {
     }
   }, [loadPlan, unlock]);
 
-  const distribute = useCallback(async () => {
-    if (!plan?.configured || !publicKey || !signAllTransactions) return;
-    const recipients = plan.recipients;
-    setRunning(true);
-    setError(null);
-    setLog([]);
-    setProgress({ done: 0, total: recipients.length });
-    try {
-      const mint = new PublicKey(plan.mint);
-      const programId = new PublicKey(plan.tokenProgram);
-      const sourceAta = degxAta(mint, publicKey, programId);
-      const decimals = plan.decimals;
-      const owners = recipients.map((r) => new PublicKey(r.wallet));
-      const missing = await fetchMissingAtas(connection, mint, owners, programId);
-      const batches = chunk(recipients, BATCH_SIZE);
-      let done = 0;
-
-      for (let w = 0; w < batches.length; w += WAVE) {
-        const wave = batches.slice(w, w + WAVE);
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-
-        const built = wave.map((b, k) => {
-          const recs: BatchRecipient[] = b.map((r) => {
-            const owner = new PublicKey(r.wallet);
-            return {
-              owner,
-              amount: BigInt(r.owed),
-              needsAta: missing.has(degxAta(mint, owner, programId).toBase58()),
-            };
-          });
-          const tx = buildUnsignedBatch({
-            payer: publicKey,
-            mint,
-            sourceAta,
-            decimals,
-            programId,
-            recipients: recs,
-            blockhash,
-            priorityMicroLamports: PRIORITY,
-          });
-          return { idx: w + k, tx, items: b };
-        });
-
-        // one wallet approval for the whole wave
-        const signed = await signAllTransactions(built.map((x) => x.tx));
-        const withSig = built.map((x, i) => ({
-          ...x,
-          signed: signed[i]!,
-          sig: bs58.encode(signed[i]!.signatures[0]!),
-        }));
-
-        // write-ahead log to the DB BEFORE broadcasting (server validates ≤ owed)
-        const items = withSig.flatMap((x) =>
-          x.items.map((r) => ({
-            wallet: r.wallet,
-            amount: r.owed,
-            sig: x.sig,
-            lvbh: lastValidBlockHeight,
-          })),
-        );
-        const sent = await fetch("/api/admin/distribute/record", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "sent", unlock, items }),
-        });
-        if (!sent.ok) throw new Error((await sent.json()).error ?? "Failed to record (WAL).");
-
-        // broadcast + confirm the wave concurrently
-        await Promise.all(
-          withSig.map(async (x) => {
-            try {
-              await connection.sendRawTransaction(x.signed.serialize(), {
-                skipPreflight: false,
-                maxRetries: 5,
-              });
-              await confirmSignature(connection, x.sig);
-              addLog(`Batch ${x.idx + 1}: ✓ ${x.items.length} wallet(s)`);
-            } catch (e) {
-              addLog(`Batch ${x.idx + 1}: ✖ ${fmtErr(e)}`);
-            }
-            done += x.items.length;
-            setProgress({ done, total: recipients.length });
-          }),
-        );
-
-        // server verifies on-chain + commits the ledger (never trusts the client)
-        await fetch("/api/admin/distribute/record", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "confirmed", sigs: withSig.map((x) => x.sig) }),
-        });
-      }
-      addLog("Run complete — reloading plan…");
-      await loadPlan(unlock);
-    } catch (e) {
-      setError(fmtErr(e));
-    } finally {
-      setRunning(false);
-    }
-  }, [plan, publicKey, signAllTransactions, connection, unlock, loadPlan]);
-
   const totals = plan?.totals;
   const owedTotal = totals ? BigInt(totals.owedTotal) : 0n;
   const dec = plan?.decimals ?? 0;
-  const enoughDegx = treasury ? treasury.degx >= owedTotal : false;
-  const canRun =
-    connected && !!signAllTransactions && !running && !loading && owedTotal > 0n && enoughDegx;
-
   const cards = totals
     ? [
         { label: "Allocated (100%)", value: formatTokens(BigInt(totals.allocatedTotal), dec) },
@@ -235,8 +82,8 @@ export function DistributionPanel() {
       <div>
         <h1 className="font-display text-2xl font-bold">Token distribution</h1>
         <p className="mt-1 text-sm text-muted">
-          Set the mint, connect the treasury wallet (it holds the $DEGX
-          allocation), and release the selected tranche. Idempotent — no wallet is
+          Set the mint and import the master list here, then release tranches from the CLI. This
+          dashboard configures and monitors — the script signs and sends. Idempotent: no wallet is
           ever paid twice, and an interrupted run resumes safely.
         </p>
       </div>
@@ -266,7 +113,7 @@ export function DistributionPanel() {
         )}
       </div>
 
-      {/* Master list import — what the distribution pays from */}
+      {/* master list import — what the distribution pays from */}
       <ImportPanel />
 
       {plan?.configured && (
@@ -274,17 +121,16 @@ export function DistributionPanel() {
           {plan.transferFeeBps > 0 && (
             <div className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm text-danger">
               ⚠ This is a Token-2022 mint with a {plan.transferFeeBps / 100}% transfer fee —
-              recipients receive less than the amounts shown. Review before sending (amounts here
-              are pre-fee).
+              recipients receive less than the amounts shown (amounts are pre-fee).
             </div>
           )}
-          {/* tranche selector */}
+
+          {/* tranche selector (view only — changes which unlock the plan shows) */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-muted">Cumulative unlock:</span>
             {PRESETS.map((p) => (
               <button
                 key={p}
-                disabled={running}
                 onClick={() => setUnlock(p)}
                 className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
                   unlock === p
@@ -308,74 +154,26 @@ export function DistributionPanel() {
             ))}
           </div>
 
-          {/* treasury + action */}
+          {/* release a tranche — CLI only */}
           <div className="rounded-2xl border border-border bg-surface p-6">
-            {!connected ? (
-              <div className="flex flex-col items-start gap-3">
-                <p className="text-sm text-muted">Connect the treasury wallet to distribute.</p>
-                <ConnectWalletButton />
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
-                  <span>
-                    Treasury $DEGX:{" "}
-                    <span className={`font-medium tabular-nums ${enoughDegx ? "text-foreground" : "text-danger"}`}>
-                      {treasury ? formatTokens(treasury.degx, dec) : "…"}
-                    </span>
-                    {treasury && !enoughDegx && <span className="text-danger"> (short for this tranche)</span>}
-                  </span>
-                  <span>
-                    SOL:{" "}
-                    <span className="font-medium tabular-nums">
-                      {treasury ? treasury.sol.toFixed(3) : "…"}
-                    </span>
-                  </span>
-                  <ConnectWalletButton />
-                </div>
+            <h2 className="font-semibold">Release a tranche</h2>
+            <p className="mt-1 text-sm text-muted">
+              Run from the CLI — it signs with the treasury key in the environment (no wallet
+              prompts) and is exactly-once. Preview first, then execute.
+            </p>
+            <pre className="mt-3 overflow-x-auto rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs leading-relaxed text-foreground">
+              {`# preview — no writes, no sends
+bun run distribute -- --unlock ${unlock} --dry
 
-                {!signAllTransactions && (
-                  <p className="text-sm text-danger">
-                    This wallet can&apos;t batch-sign. Use Phantom, Backpack, or Solflare.
-                  </p>
-                )}
-
-                <Button onClick={distribute} disabled={!canRun}>
-                  {running ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" /> Distributing…
-                    </>
-                  ) : owedTotal > 0n ? (
-                    `Distribute ${formatTokens(owedTotal, dec)} $DEGX to ${totals?.recipientCount} wallet(s)`
-                  ) : (
-                    "Everyone is at this unlock — nothing to send"
-                  )}
-                </Button>
-
-                {progress.total > 0 && (
-                  <div>
-                    <div className="flex justify-between text-xs text-muted">
-                      <span>
-                        {progress.done} / {progress.total} wallets
-                      </span>
-                      <span>{Math.round((progress.done / progress.total) * 100)}%</span>
-                    </div>
-                    <Progress value={(progress.done / progress.total) * 100} className="mt-1.5" />
-                  </div>
-                )}
-              </div>
-            )}
+# release the ${unlock}% tranche
+bun run distribute -- --unlock ${unlock} --yes`}
+            </pre>
+            <p className="mt-2 text-xs text-muted">
+              {owedTotal > 0n
+                ? `${formatTokens(owedTotal, dec)} $DEGX owed to ${totals?.recipientCount} wallet(s) at ${unlock}%.`
+                : "Everyone is at this unlock — nothing to send."}
+            </p>
           </div>
-
-          {log.length > 0 && (
-            <div className="rounded-2xl border border-border bg-surface p-4">
-              <div className="max-h-64 overflow-y-auto font-mono text-xs leading-relaxed text-muted">
-                {log.map((l, i) => (
-                  <div key={i}>{l}</div>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
 
