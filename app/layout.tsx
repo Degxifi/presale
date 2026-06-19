@@ -63,7 +63,11 @@ export default function RootLayout({
       className={`${inter.variable} ${spaceGrotesk.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="flex min-h-full flex-col">
+      {/* suppressHydrationWarning: browser extensions (ColorZilla's
+          cz-shortcut-listen, Grammarly, etc.) inject attributes onto <body>
+          before React hydrates, which would otherwise log a hydration mismatch.
+          Only suppresses the warning for THIS element's attributes. */}
+      <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>

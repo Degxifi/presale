@@ -231,6 +231,114 @@ export async function getWalletRaisedByTier(
   return result;
 }
 
+/** A single wallet's confirmed rows (tier + amount) — for the $DEGX owed calc. */
+export async function getWalletConfirmedRows(
+  wallet: string,
+): Promise<{ tier: TierId; amountUsdc: number }[]> {
+  if (!db) return [];
+  const rows = await db
+    .select({ tier: contributions.tier, amountUsdc: contributions.amountUsdc })
+    .from(contributions)
+    .where(
+      and(eq(contributions.wallet, wallet), eq(contributions.status, "confirmed")),
+    );
+  return rows.map((r) => ({ tier: r.tier as TierId, amountUsdc: Number(r.amountUsdc) }));
+}
+
+/**
+ * The $DEGX distribution ledger `degx_distributions` (one row per wallet) is the
+ * idempotency record for BOTH the self-service claim AND the airdrop script — a
+ * `confirmed` wallet is never paid twice. Managed here via raw SQL (deliberately
+ * NOT a drizzle table, so drizzle never tries to migrate it): `ensure` creates it
+ * idempotently, `claim` marks 'pending' atomically (race-safe via the PK), `stamp`
+ * records the outcome. Rows are written only by the server claim path / script.
+ */
+let _distTableEnsured = false;
+export async function ensureDistributionsTable(): Promise<void> {
+  if (_distTableEnsured || !db) return;
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS degx_distributions (
+      wallet      text NOT NULL,
+      tranche     smallint NOT NULL DEFAULT 1,
+      degx_amount numeric(30,0) NOT NULL,
+      status      text NOT NULL DEFAULT 'pending',
+      tx_sig      text,
+      error       text,
+      created_at  timestamptz NOT NULL DEFAULT now(),
+      updated_at  timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (wallet, tranche)
+    )`);
+  _distTableEnsured = true;
+}
+
+function rowsOf(res: unknown): unknown[] {
+  return (Array.isArray(res) ? res : (res as { rows?: unknown[] }).rows) ?? [];
+}
+
+/** Read a wallet's ledger row for a tranche (claim status), or null. */
+export async function getDistribution(
+  wallet: string,
+  tranche: number,
+): Promise<{ status: string; txSig: string | null } | null> {
+  if (!db) return null;
+  try {
+    const res = await db.execute(
+      sql`SELECT status, tx_sig FROM degx_distributions WHERE wallet = ${wallet} AND tranche = ${tranche} LIMIT 1`,
+    );
+    const row = rowsOf(res)[0] as { status?: string; tx_sig?: string | null } | undefined;
+    return row ? { status: String(row.status), txSig: row.tx_sig ?? null } : null;
+  } catch {
+    return null; // table not present yet (pre-distribution)
+  }
+}
+
+/**
+ * Atomically claim a (wallet, tranche) for distribution: mark it 'pending' iff
+ * it's absent, a previous 'failed' attempt, or a STALE 'pending' that never
+ * produced a tx_sig. Race-safe via the (wallet, tranche) PK + ON CONFLICT, so
+ * two concurrent claims can never both proceed to send.
+ *  - "claimed":  we own it → caller may send.
+ *  - "already":  already confirmed (caller returns the prior tx).
+ *  - "inflight": a pending/submitted claim exists (caller backs off).
+ */
+export async function claimDistribution(
+  wallet: string,
+  tranche: number,
+  owed: number,
+): Promise<"claimed" | "already" | "inflight"> {
+  if (!db) return "inflight";
+  // tx_sig IS NULL proves no transaction was ever submitted by us, so re-claiming
+  // a stale 'pending' after a short TTL is safe and self-heals stranded rows. A
+  // 'pending' WITH a tx_sig, or a 'submitted'/'confirmed' row, is never reclaimed.
+  const res = await db.execute(sql`
+    INSERT INTO degx_distributions (wallet, tranche, degx_amount, status)
+    VALUES (${wallet}, ${tranche}, ${owed}, 'pending')
+    ON CONFLICT (wallet, tranche) DO UPDATE SET status = 'pending', degx_amount = EXCLUDED.degx_amount, error = NULL, updated_at = now()
+    WHERE degx_distributions.status = 'failed'
+       OR (degx_distributions.status = 'pending'
+           AND degx_distributions.tx_sig IS NULL
+           AND degx_distributions.updated_at < now() - interval '5 minutes')
+    RETURNING status`);
+  if (rowsOf(res).length > 0) return "claimed";
+  const cur = await getDistribution(wallet, tranche);
+  return cur?.status === "confirmed" ? "already" : "inflight";
+}
+
+/** Record the outcome of a claim send on the (wallet, tranche) ledger row. */
+export async function stampDistribution(
+  wallet: string,
+  tranche: number,
+  status: "confirmed" | "submitted" | "failed",
+  txSig: string | null,
+  error: string | null,
+): Promise<void> {
+  if (!db) return;
+  await db.execute(sql`
+    UPDATE degx_distributions
+    SET status = ${status}, tx_sig = ${txSig}, error = ${error}, updated_at = now()
+    WHERE wallet = ${wallet} AND tranche = ${tranche}`);
+}
+
 /** All confirmed contributions (admin CSV export / distribution), oldest first. */
 export async function getAllContributions() {
   if (!db) return [];
