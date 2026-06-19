@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/admin/guard";
 import { type AppSettings, getSettings, updateSettings } from "@/lib/db/queries";
+import { isLikelyWalletAddress } from "@/lib/solana/config";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,16 @@ export async function POST(request: Request) {
   const b = (body ?? {}) as Partial<AppSettings>;
   const patch: Partial<AppSettings> = {};
   if ("announcement" in b) patch.announcement = b.announcement ? String(b.announcement) : null;
+  if ("degxMint" in b) {
+    const v = b.degxMint ? String(b.degxMint).trim() : null;
+    if (v !== null && !isLikelyWalletAddress(v)) {
+      return NextResponse.json(
+        { error: "Invalid mint address (expected a base58 Solana address)." },
+        { status: 400 },
+      );
+    }
+    patch.degxMint = v;
+  }
   if ("presaleStart" in b) {
     const v = b.presaleStart ? String(b.presaleStart) : null;
     // Require a STRICT ISO-8601 date(-time), not just `new Date()`-parseable:

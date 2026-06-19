@@ -15,6 +15,9 @@ export const USDC_MINT_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 export const USDC_DECIMALS = 6;
 
+// The $DEGX mint is admin-set (stored in app_settings, entered in the dashboard
+// after the Jupiter Studio launch) — not an env var. See the distribution routes.
+
 /**
  * USDC receiving wallet — HARDCODED for max security (immutable; not env- or
  * admin-settable, so it can't be redirected by a config change or compromised

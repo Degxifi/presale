@@ -1,8 +1,8 @@
-import { and, countDistinct, desc, eq, sql } from "drizzle-orm";
+import { and, countDistinct, desc, eq, inArray, sql } from "drizzle-orm";
 import type { TierId } from "@/types/presale";
 import { degxForUsdc, getTier } from "@/lib/presale";
 import { db } from "./index";
-import { appSettings, contributions } from "./schema";
+import { appSettings, contributions, distributions } from "./schema";
 import { user as authUser } from "./auth-schema";
 
 export type RecentBuy = {
@@ -21,6 +21,7 @@ export type RawStats = {
 
 export type AppSettings = {
   announcement: string | null;
+  degxMint: string | null;
   presaleStart: string | null;
   tierOverrides: Partial<Record<TierId, "paused" | "closed">>;
 };
@@ -28,6 +29,7 @@ export type AppSettings = {
 const zeroByTier = (): Record<TierId, number> => ({ 1: 0, 2: 0, 3: 0 });
 const DEFAULT_SETTINGS: AppSettings = {
   announcement: null,
+  degxMint: null,
   presaleStart: null,
   tierOverrides: {},
 };
@@ -267,6 +269,7 @@ export async function getSettings(): Promise<AppSettings> {
   if (!row) return DEFAULT_SETTINGS;
   return {
     announcement: row.announcement ?? null,
+    degxMint: row.degxMint ?? null,
     presaleStart: row.presaleStart ? row.presaleStart.toISOString() : null,
     tierOverrides: row.tierOverrides ?? {},
   };
@@ -283,6 +286,7 @@ export async function updateSettings(
     set.presaleStart = patch.presaleStart ? new Date(patch.presaleStart) : null;
   }
   if ("tierOverrides" in patch) set.tierOverrides = patch.tierOverrides ?? {};
+  if ("degxMint" in patch) set.degxMint = patch.degxMint ?? null;
   await db
     .insert(appSettings)
     .values({ id: 1, ...set })
@@ -316,4 +320,114 @@ export async function listUsers(): Promise<AdminUser[]> {
     role: r.role ?? "user",
     createdAt: r.createdAt.toISOString(),
   }));
+}
+
+// ---- Token distribution -------------------------------------------------
+
+/**
+ * Confirmed allocation per wallet in WHOLE $DEGX tokens — floored per row to
+ * match the receipts/CSV, then summed across the wallet's confirmed buys.
+ * Flagged/pending rows are excluded (never distributed).
+ */
+export async function getConfirmedAllocations(): Promise<Map<string, bigint>> {
+  const out = new Map<string, bigint>();
+  if (!db) return out;
+  const rows = await db
+    .select({
+      wallet: contributions.wallet,
+      amount: contributions.amountUsdc,
+      tier: contributions.tier,
+    })
+    .from(contributions)
+    .where(eq(contributions.status, "confirmed"));
+  for (const r of rows) {
+    const tokens = BigInt(
+      Math.floor(degxForUsdc(Number(r.amount), getTier(r.tier as TierId).price)),
+    );
+    if (tokens > 0n) out.set(r.wallet, (out.get(r.wallet) ?? 0n) + tokens);
+  }
+  return out;
+}
+
+export type DistributionRow = {
+  wallet: string;
+  distributed: string; // base units
+  inflightAmount: string | null;
+  inflightSig: string | null;
+  inflightLvbh: number | null;
+};
+
+/** Ledger state per wallet (cumulative distributed + any in-flight WAL entry). */
+export async function getDistributionRows(): Promise<DistributionRow[]> {
+  if (!db) return [];
+  const rows = await db.select().from(distributions);
+  return rows.map((r) => ({
+    wallet: r.wallet,
+    distributed: r.distributed,
+    inflightAmount: r.inflightAmount,
+    inflightSig: r.inflightSig,
+    inflightLvbh: r.inflightLvbh,
+  }));
+}
+
+/**
+ * Write-ahead log: record signed-but-not-yet-confirmed transfers BEFORE they're
+ * broadcast. The caller (route) must ensure none of these wallets already has an
+ * in-flight entry (reconcile/reload first), so a live signature is never
+ * orphaned by an overwrite.
+ */
+export async function setInflight(
+  items: { wallet: string; amount: string; sig: string; lvbh: number }[],
+): Promise<void> {
+  if (!db) throw new Error("Database is not configured.");
+  for (const it of items) {
+    await db
+      .insert(distributions)
+      .values({
+        wallet: it.wallet,
+        distributed: "0",
+        inflightAmount: it.amount,
+        inflightSig: it.sig,
+        inflightLvbh: it.lvbh,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: distributions.wallet,
+        set: {
+          inflightAmount: it.amount,
+          inflightSig: it.sig,
+          inflightLvbh: it.lvbh,
+          updatedAt: new Date(),
+        },
+      });
+  }
+}
+
+/** Commit confirmed batches: distributed += in-flight amount, then clear it. */
+export async function commitConfirmed(sigs: string[]): Promise<void> {
+  if (!db || sigs.length === 0) return;
+  await db
+    .update(distributions)
+    .set({
+      distributed: sql`${distributions.distributed} + coalesce(${distributions.inflightAmount}, 0)`,
+      inflightAmount: null,
+      inflightSig: null,
+      inflightLvbh: null,
+      updatedAt: new Date(),
+    })
+    .where(inArray(distributions.inflightSig, sigs));
+}
+
+/** Clear in-flight entries (expired/failed) so those wallets are owed again. */
+export async function clearInflight(sigs: string[]): Promise<void> {
+  if (!db || sigs.length === 0) return;
+  await db
+    .update(distributions)
+    .set({
+      inflightAmount: null,
+      inflightSig: null,
+      inflightLvbh: null,
+      updatedAt: new Date(),
+    })
+    .where(inArray(distributions.inflightSig, sigs));
 }

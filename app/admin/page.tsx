@@ -172,12 +172,20 @@ export default async function AdminPage() {
         <div className="rounded-2xl border border-border bg-surface p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <h2 className="font-semibold">Participants</h2>
-            <a
-              href="/api/admin/export"
-              className={buttonVariants({ variant: "secondary", size: "sm" })}
-            >
-              Export CSV
-            </a>
+            <div className="flex gap-2">
+              <a
+                href="/admin/distribute"
+                className={buttonVariants({ size: "sm" })}
+              >
+                Distribute tokens →
+              </a>
+              <a
+                href="/api/admin/export"
+                className={buttonVariants({ variant: "secondary", size: "sm" })}
+              >
+                Export CSV
+              </a>
+            </div>
           </div>
           <p className="mt-1 text-sm text-muted">
             Presale wallet:{" "}

@@ -59,7 +59,7 @@ async function getSnapshot(): Promise<Snapshot> {
   return (
     snapshot ?? {
       raw: { raisedByTier: { 1: 0, 2: 0, 3: 0 }, participantCount: 0, recent: [] },
-      settings: { announcement: null, presaleStart: null, tierOverrides: {} },
+      settings: { announcement: null, degxMint: null, presaleStart: null, tierOverrides: {} },
     }
   );
 }
