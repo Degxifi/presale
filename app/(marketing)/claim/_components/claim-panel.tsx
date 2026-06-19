@@ -8,7 +8,12 @@ import { Check, Clock, ExternalLink, Loader2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MobileWalletSheet } from "@/components/wallet/mobile-wallet-sheet";
 import { needsInAppBrowser } from "@/lib/wallet/mobile";
-import { buildClaimMessage, type Eligibility } from "@/lib/claim";
+import {
+  buildClaimMessage,
+  CLAIM_OPENS_AT,
+  claimOpensAtMs,
+  type Eligibility,
+} from "@/lib/claim";
 import { solscanTx } from "@/lib/solana/config";
 import { num, shortWallet } from "@/lib/format";
 import { Countdown } from "@/components/marketing/countdown";
@@ -17,11 +22,15 @@ import { Countdown } from "@/components/marketing/countdown";
 // "true" at launch. The backend is the hard gate (503) regardless of this flag.
 const CLAIM_ENABLED = process.env.NEXT_PUBLIC_CLAIM_ENABLED === "true";
 
-// Claiming opens at this instant: 4:00 PM WAT (UTC+1) today. Override via
-// NEXT_PUBLIC_CLAIM_OPENS_AT (ISO); set it to "" to remove the gate entirely
-// (claim immediately — handy for demos).
-const CLAIM_OPENS_AT =
-  process.env.NEXT_PUBLIC_CLAIM_OPENS_AT ?? "2026-06-19T16:00:00+01:00";
+// Small countdown block reused wherever the claim action is gated until 4 PM WAT.
+function ClaimCountdown() {
+  return (
+    <div className="flex flex-col items-center gap-3 text-center">
+      <p className="text-sm font-medium text-muted">Claiming opens at 4:00 PM WAT</p>
+      <Countdown target={CLAIM_OPENS_AT} verb="Opens" doneLabel="Claiming is live" />
+    </div>
+  );
+}
 
 type View =
   | { s: "loading" }
@@ -48,7 +57,7 @@ export function ClaimPanel() {
   // Gate the claim UI until CLAIM_OPENS_AT. claimsOpen starts false (matches the
   // server render → no hydration mismatch) and flips once the client clock passes
   // the target. Empty/invalid target = no gate (open immediately).
-  const opensAtMs = CLAIM_OPENS_AT ? Date.parse(CLAIM_OPENS_AT) : 0;
+  const opensAtMs = claimOpensAtMs();
   const [claimsOpen, setClaimsOpen] = useState(false);
   useEffect(() => {
     if (!opensAtMs || Number.isNaN(opensAtMs) || Date.now() >= opensAtMs) {
@@ -163,19 +172,10 @@ export function ClaimPanel() {
     <div className="rounded-2xl border border-border bg-surface p-8 text-left">{children}</div>
   );
 
-  // ── claim not open yet → countdown to 4:00 PM WAT ────────────────────────────
-  if (!claimsOpen) {
-    return (
-      <Shell>
-        <div className="flex flex-col items-center gap-5 text-center">
-          <p className="text-sm font-medium text-muted">Claiming opens at 4:00 PM WAT</p>
-          <Countdown target={CLAIM_OPENS_AT} verb="Opens" doneLabel="Claiming is live" />
-        </div>
-      </Shell>
-    );
-  }
-
   // ── not connected ───────────────────────────────────────────────────────────
+  // Users can connect (and see their allocation) DURING the countdown — only the
+  // claim ACTION is gated until 4 PM WAT (here + server-side). Show the countdown
+  // below the connect button so they know when it opens.
   if (!connected || !wallet) {
     return (
       <>
@@ -186,6 +186,11 @@ export function ClaimPanel() {
             <Button size="lg" className="w-full" onClick={startConnect}>
               Connect Wallet
             </Button>
+            {!claimsOpen && (
+              <div className="mt-2 w-full border-t border-border pt-5">
+                <ClaimCountdown />
+              </div>
+            )}
           </div>
         </Shell>
         <MobileWalletSheet open={mobileSheet} onClose={() => setMobileSheet(false)} />
@@ -231,7 +236,14 @@ export function ClaimPanel() {
             40% of your allocation unlocks now. The remaining 60% vests over the
             following months.
           </p>
-          {CLAIM_ENABLED ? (
+          {!claimsOpen ? (
+            // Connected + eligible, but the countdown hasn't elapsed → show the
+            // timer here instead of an active Claim button. The server also 403s
+            // until the open instant, so this can't be bypassed.
+            <div className="mt-6 border-t border-border pt-6">
+              <ClaimCountdown />
+            </div>
+          ) : CLAIM_ENABLED ? (
             <Button
               size="lg"
               className="mt-6 w-full"

@@ -10,6 +10,28 @@ import type { TierId } from "@/types/presale";
 export const CLAIM_DOMAIN = "Degxifi $DEGX Claim";
 
 /**
+ * Claim go-live instant (ISO). Default 4:00 PM WAT (UTC+1); override via
+ * NEXT_PUBLIC_CLAIM_OPENS_AT (available server- AND client-side). Set it to "" to
+ * remove the gate (claim immediately). One source of truth so the UI countdown
+ * and the server-side hard check agree.
+ */
+export const CLAIM_OPENS_AT =
+  process.env.NEXT_PUBLIC_CLAIM_OPENS_AT ?? "2026-06-19T16:00:00+01:00";
+
+/** Epoch ms of the open instant, or 0 when unset/invalid (= no gate). */
+export function claimOpensAtMs(): number {
+  if (!CLAIM_OPENS_AT) return 0;
+  const t = Date.parse(CLAIM_OPENS_AT);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/** True once claiming has opened (shared by the UI gate and the API hard-gate). */
+export function claimIsOpen(): boolean {
+  const ms = claimOpensAtMs();
+  return ms === 0 || Date.now() >= ms;
+}
+
+/**
  * Distribution tranches. A wallet's FULL allocation is released in rounds, one
  * ledger row per (wallet, tranche): tranche 1 = 40% now, tranche 2 = the
  * remaining 60% later. The split is LOSSLESS — tranche 2 = full − tranche 1 —
