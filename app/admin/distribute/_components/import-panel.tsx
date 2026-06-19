@@ -49,13 +49,16 @@ export function ImportPanel() {
 
   const onFile = async (f: File | undefined) => {
     if (!f) return;
-    setContent(await f.text());
+    const text = await f.text();
+    setContent(text);
     setFileName(f.name);
     reset();
+    void call(true, text); // auto-preview the chosen file (uses the text directly, not stale state)
   };
 
-  const call = async (dryRun: boolean) => {
-    if (!content.trim()) {
+  const call = async (dryRun: boolean, contentArg?: string) => {
+    const body = contentArg ?? content;
+    if (!body.trim()) {
       setError("Choose a CSV or JSON file first.");
       return;
     }
@@ -66,7 +69,7 @@ export function ImportPanel() {
       const res = await fetch("/api/admin/import", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ content, dryRun, replace }),
+        body: JSON.stringify({ content: body, dryRun, replace }),
       });
       const data = await res.json();
       if (res.status === 422) {
@@ -134,7 +137,7 @@ export function ImportPanel() {
             "Preview"
           )}
         </Button>
-        <Button onClick={() => call(false)} disabled={busy !== null || !preview || done}>
+        <Button onClick={() => call(false)} disabled={busy !== null || !content || done || !!issues}>
           {busy === "commit" ? (
             <>
               <Loader2 className="size-4 animate-spin" /> Importing…

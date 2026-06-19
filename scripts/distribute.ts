@@ -47,8 +47,10 @@ for (let i = 0; i < argv.length; i++) {
   const a = argv[i]!;
   if (!a.startsWith("--")) continue;
   const next = argv[i + 1];
-  if (next !== undefined && !next.startsWith("--")) (flags.set(a.slice(2), next), i++);
-  else flags.set(a.slice(2), true);
+  if (next !== undefined && !next.startsWith("--")) {
+    flags.set(a.slice(2), next);
+    i++;
+  } else flags.set(a.slice(2), true);
 }
 const has = (k: string) => flags.has(k);
 const str = (k: string, d = "") => (typeof flags.get(k) === "string" ? (flags.get(k) as string) : d);
@@ -225,7 +227,10 @@ async function main() {
     const dead = [...statuses].filter(([, s]) => s === "failed" || s === "expired").map(([s]) => s);
     if (ok.length) await commitConfirmed(ok);
     if (dead.length) await clearInflight(dead);
-    for (const b of built) (statuses.get(b.sig) === "confirmed" ? (confirmed += b.items.length) : (failed += b.items.length));
+    for (const b of built) {
+      if (statuses.get(b.sig) === "confirmed") confirmed += b.items.length;
+      else failed += b.items.length;
+    }
     console.log(`  wave ${waveNo}/${waveCount}: ${ok.length}/${built.length} batches confirmed (${confirmed} wallets total)`);
   }
 

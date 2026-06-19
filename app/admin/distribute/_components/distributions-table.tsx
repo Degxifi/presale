@@ -50,7 +50,8 @@ export function DistributionsTable() {
   }, []);
 
   useEffect(() => {
-    load();
+    const raf = requestAnimationFrame(() => load());
+    return () => cancelAnimationFrame(raf);
   }, [load]);
 
   const copy = (s: string) => {
@@ -132,7 +133,7 @@ export function DistributionsTable() {
       )}
 
       {data && data.rows.length > 0 && (
-        <div className="mt-3 max-h-[480px] overflow-y-auto rounded-xl border border-border">
+        <div className="mt-3 max-h-120 overflow-y-auto rounded-xl border border-border">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-surface-2 text-left text-xs uppercase tracking-wider text-muted">
               <tr>
