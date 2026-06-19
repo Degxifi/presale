@@ -87,7 +87,7 @@ export function MobileWalletSheet({
         ok = document.execCommand("copy");
         document.body.removeChild(ta);
       } catch {
-        ok = false; // both failed — the URL is shown below for manual copy
+        ok = false; // both failed (very rare on mobile) — user can retry
       }
     }
     if (ok) {
@@ -146,12 +146,9 @@ export function MobileWalletSheet({
         </div>
 
         <p className="text-xs leading-relaxed text-muted">
-          <span className="text-foreground">Use your device wallet</span> opens your
-          phone&apos;s Mobile Wallet Adapter. Using{" "}
-          <span className="text-foreground">Jupiter Mobile</span> or another wallet?
-          Tap <span className="text-foreground">Copy link</span>, open your wallet
-          app&apos;s built-in browser, and paste{" "}
-          <span className="break-all font-mono text-foreground">{url}</span>.
+          Using Jupiter or another wallet? Tap{" "}
+          <span className="text-foreground">Copy link</span> and open it in your
+          wallet app&apos;s browser.
         </p>
       </div>
     </Dialog>
