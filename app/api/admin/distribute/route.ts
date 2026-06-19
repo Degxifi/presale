@@ -10,7 +10,7 @@ import {
 } from "@/lib/db/queries";
 import {
   classifySignatures,
-  getDegxDecimals,
+  getMintInfo,
   unlockedTarget,
 } from "@/lib/solana/distribute";
 
@@ -46,7 +46,9 @@ export async function GET(request: Request) {
   const { degxMint } = await getSettings();
   const base = {
     mint: degxMint ?? "",
+    tokenProgram: "",
     decimals: 0,
+    transferFeeBps: 0,
     unlockBps,
     recipients: [] as { wallet: string; owed: string }[],
     totals: ZERO_TOTALS,
@@ -56,9 +58,11 @@ export async function GET(request: Request) {
   const c = serverConnection();
   let mint: PublicKey;
   let decimals: number;
+  let programId: PublicKey;
+  let transferFeeBps: number;
   try {
     mint = new PublicKey(degxMint);
-    decimals = await getDegxDecimals(c, mint);
+    ({ decimals, programId, transferFeeBps } = await getMintInfo(c, mint));
   } catch {
     return NextResponse.json({
       configured: false,
@@ -109,7 +113,9 @@ export async function GET(request: Request) {
     {
       configured: true,
       mint: degxMint,
+      tokenProgram: programId.toBase58(),
       decimals,
+      transferFeeBps,
       unlockBps,
       recipients,
       totals: {

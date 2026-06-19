@@ -77,8 +77,9 @@ export function DistributionPanel() {
       }
       try {
         const mint = new PublicKey(plan.mint);
+        const programId = new PublicKey(plan.tokenProgram);
         const [degxRes, lamports] = await Promise.all([
-          connection.getTokenAccountBalance(degxAta(mint, publicKey)).catch(() => null),
+          connection.getTokenAccountBalance(degxAta(mint, publicKey, programId)).catch(() => null),
           connection.getBalance(publicKey),
         ]);
         if (active)
@@ -120,10 +121,11 @@ export function DistributionPanel() {
     setProgress({ done: 0, total: recipients.length });
     try {
       const mint = new PublicKey(plan.mint);
-      const sourceAta = degxAta(mint, publicKey);
+      const programId = new PublicKey(plan.tokenProgram);
+      const sourceAta = degxAta(mint, publicKey, programId);
       const decimals = plan.decimals;
       const owners = recipients.map((r) => new PublicKey(r.wallet));
-      const missing = await fetchMissingAtas(connection, mint, owners);
+      const missing = await fetchMissingAtas(connection, mint, owners, programId);
       const batches = chunk(recipients, BATCH_SIZE);
       let done = 0;
 
@@ -137,7 +139,7 @@ export function DistributionPanel() {
             return {
               owner,
               amount: BigInt(r.owed),
-              needsAta: missing.has(degxAta(mint, owner).toBase58()),
+              needsAta: missing.has(degxAta(mint, owner, programId).toBase58()),
             };
           });
           const tx = buildUnsignedBatch({
@@ -145,6 +147,7 @@ export function DistributionPanel() {
             mint,
             sourceAta,
             decimals,
+            programId,
             recipients: recs,
             blockhash,
             priorityMicroLamports: PRIORITY,
@@ -264,6 +267,13 @@ export function DistributionPanel() {
 
       {plan?.configured && (
         <>
+          {plan.transferFeeBps > 0 && (
+            <div className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm text-danger">
+              ⚠ This is a Token-2022 mint with a {plan.transferFeeBps / 100}% transfer fee —
+              recipients receive less than the amounts shown. Review before sending (amounts here
+              are pre-fee).
+            </div>
+          )}
           {/* tranche selector */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-muted">Cumulative unlock:</span>

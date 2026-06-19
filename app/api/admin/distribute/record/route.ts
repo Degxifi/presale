@@ -11,7 +11,7 @@ import {
 } from "@/lib/db/queries";
 import {
   classifySignatures,
-  getDegxDecimals,
+  getMintInfo,
   unlockedTarget,
 } from "@/lib/solana/distribute";
 
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     if (!unlockBps) return NextResponse.json({ error: "Bad unlock %." }, { status: 400 });
     if (items.length === 0) return NextResponse.json({ ok: true });
 
-    const decimals = await getDegxDecimals(c, mint);
+    const { decimals } = await getMintInfo(c, mint);
     const scale = 10n ** BigInt(decimals);
     const alloc = await getConfirmedAllocations();
     const state = new Map((await getDistributionRows()).map((r) => [r.wallet, r]));

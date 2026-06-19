@@ -7,15 +7,23 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import {
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
   getMint,
+  getTransferFeeConfig,
 } from "@solana/spl-token";
 
 /**
  * Shared token-distribution primitives (server route + wallet-signing UI).
  * All amounts are integer base units (mint smallest unit) as bigint — no floats.
+ *
+ * Program-aware: the mint may be on the legacy SPL Token program OR Token-2022
+ * (Jupiter Studio / pump-style launches are often Token-2022). We detect the
+ * owning program from the mint account and thread it through mint reads, ATA
+ * derivation, and the transfer/create instructions — they are NOT interchangeable.
  */
 
 export const ATA_RENT_LAMPORTS = 2_039_280; // rent-exempt min for a token account
@@ -26,7 +34,9 @@ export type PlanRecipient = { wallet: string; owed: string }; // owed in base un
 export type DistributionPlan = {
   configured: boolean; // true once a valid mint is set and loadable
   mint: string; // "" until the admin sets it
+  tokenProgram: string; // owning program id (legacy or Token-2022)
   decimals: number;
+  transferFeeBps: number; // >0 means recipients receive LESS than sent (warn)
   unlockBps: number;
   recipients: PlanRecipient[];
   totals: {
@@ -45,21 +55,42 @@ export function unlockedTarget(totalBase: bigint, unlockBps: number): bigint {
   return (totalBase * BigInt(unlockBps)) / 10000n;
 }
 
-export const degxAta = (mint: PublicKey, owner: PublicKey) =>
-  getAssociatedTokenAddressSync(mint, owner, true); // allowOwnerOffCurve: any recipient
-
-export async function getDegxDecimals(c: Connection, mint: PublicKey): Promise<number> {
-  return (await getMint(c, mint)).decimals;
+/** The SPL token program that owns this mint (legacy or Token-2022). */
+export async function getTokenProgram(c: Connection, mint: PublicKey): Promise<PublicKey> {
+  const acct = await c.getAccountInfo(mint);
+  if (!acct) throw new Error("Mint account not found on-chain.");
+  if (acct.owner.equals(TOKEN_PROGRAM_ID) || acct.owner.equals(TOKEN_2022_PROGRAM_ID))
+    return acct.owner;
+  throw new Error("Address is not an SPL token mint.");
 }
 
-/** The subset of these owners whose DEGX ATA does NOT yet exist (needs creating). */
+/** Decimals + owning program + transfer-fee (bps) for a mint, either program. */
+export async function getMintInfo(
+  c: Connection,
+  mint: PublicKey,
+): Promise<{ decimals: number; programId: PublicKey; transferFeeBps: number }> {
+  const programId = await getTokenProgram(c, mint);
+  const mintAccount = await getMint(c, mint, undefined, programId);
+  let transferFeeBps = 0;
+  if (programId.equals(TOKEN_2022_PROGRAM_ID)) {
+    const fee = getTransferFeeConfig(mintAccount);
+    if (fee) transferFeeBps = fee.newerTransferFee.transferFeeBasisPoints;
+  }
+  return { decimals: mintAccount.decimals, programId, transferFeeBps };
+}
+
+export const degxAta = (mint: PublicKey, owner: PublicKey, programId: PublicKey) =>
+  getAssociatedTokenAddressSync(mint, owner, true, programId); // allowOwnerOffCurve: any recipient
+
+/** The subset of these owners whose token ATA does NOT yet exist (needs creating). */
 export async function fetchMissingAtas(
   c: Connection,
   mint: PublicKey,
   owners: PublicKey[],
+  programId: PublicKey,
 ): Promise<Set<string>> {
   const missing = new Set<string>();
-  const atas = owners.map((o) => degxAta(mint, o));
+  const atas = owners.map((o) => degxAta(mint, o, programId));
   for (let i = 0; i < atas.length; i += 100) {
     const chunk = atas.slice(i, i + 100);
     const infos = await c.getMultipleAccountsInfo(chunk);
@@ -78,11 +109,12 @@ export function buildUnsignedBatch(params: {
   mint: PublicKey;
   sourceAta: PublicKey;
   decimals: number;
+  programId: PublicKey;
   recipients: BatchRecipient[];
   blockhash: string;
   priorityMicroLamports: number;
 }): VersionedTransaction {
-  const { payer, mint, sourceAta, decimals, recipients, blockhash } = params;
+  const { payer, mint, sourceAta, decimals, programId, recipients, blockhash } = params;
   const createCount = recipients.filter((r) => r.needsAta).length;
   const ixs: TransactionInstruction[] = [
     ComputeBudgetProgram.setComputeUnitLimit({
@@ -95,14 +127,29 @@ export function buildUnsignedBatch(params: {
     );
   }
   for (const r of recipients) {
-    const recipientAta = degxAta(mint, r.owner);
+    const recipientAta = degxAta(mint, r.owner, programId);
     if (r.needsAta) {
       ixs.push(
-        createAssociatedTokenAccountIdempotentInstruction(payer, recipientAta, r.owner, mint),
+        createAssociatedTokenAccountIdempotentInstruction(
+          payer,
+          recipientAta,
+          r.owner,
+          mint,
+          programId,
+        ),
       );
     }
     ixs.push(
-      createTransferCheckedInstruction(sourceAta, mint, recipientAta, payer, r.amount, decimals),
+      createTransferCheckedInstruction(
+        sourceAta,
+        mint,
+        recipientAta,
+        payer,
+        r.amount,
+        decimals,
+        [],
+        programId,
+      ),
     );
   }
   const msg = new TransactionMessage({
