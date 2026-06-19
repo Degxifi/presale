@@ -12,7 +12,7 @@ import {
   claimDistribution,
   stampDistribution,
 } from "@/lib/db/queries";
-import { computeOwedWholeDegx, claimableForTranche, activeTranche, CLAIM_DOMAIN } from "@/lib/claim";
+import { computeOwedWholeDegx, claimableForTranche, activeTranche, claimIsOpen, CLAIM_DOMAIN } from "@/lib/claim";
 import {
   loadTreasuryKeypair,
   getMintCtx,
@@ -47,6 +47,16 @@ export async function POST(request: Request) {
   const ip = clientIp(request);
   if (!(await checkRateLimit(`claim:${ip}`))) {
     return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
+  }
+
+  // Hard time-gate: claiming is closed until CLAIM_OPENS_AT. The UI countdown is
+  // bypassable (a direct POST), so enforce it server-side too — no one can claim
+  // (even their own allocation) before the open instant.
+  if (!claimIsOpen()) {
+    return NextResponse.json(
+      { error: "Claiming hasn't opened yet — please wait for the countdown." },
+      { status: 403 },
+    );
   }
 
   let body: unknown;
