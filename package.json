@@ -13,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "distribute": "bun --env-file=.env.local run scripts/distribute.ts"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",
@@ -24,6 +25,7 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
     "better-auth": "^1.6.15",
+    "bs58": "^6.0.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "kysely": "0.29.2",
@@ -47,5 +49,9 @@
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-  "trustedDependencies": ["sharp", "esbuild", "unrs-resolver"]
+  "trustedDependencies": [
+    "sharp",
+    "esbuild",
+    "unrs-resolver"
+  ]
 }

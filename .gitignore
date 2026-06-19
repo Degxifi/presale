@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local-only devnet test harness (hardcodes the RPC key — never commit)
+/devnet-setup.ts
+/fund-treasury.ts

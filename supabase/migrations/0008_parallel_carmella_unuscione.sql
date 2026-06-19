@@ -1,0 +1,1 @@
+ALTER TABLE "distributions" ADD COLUMN "sigs" text[] DEFAULT '{}'::text[] NOT NULL;
