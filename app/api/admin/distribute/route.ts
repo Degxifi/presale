@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getAdminSession } from "@/lib/admin/guard";
-import { getSettings } from "@/lib/db/queries";
 import { buildPlan } from "@/lib/distribution";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +19,10 @@ const ZERO_TOTALS = {
 };
 
 /**
- * Distribution plan for a given unlock %. The $DEGX mint is read from admin
- * settings (DB) — not env. Shares buildPlan() with the CLI script, so the
- * dashboard and the script reconcile/own the SAME ledger. Admin-gated.
+ * Distribution plan for a given unlock %. The $DEGX mint is owned by the script
+ * and read from env (DEGX_MINT), so this view uses the same value the CLI pays
+ * with. Allocations come from the uploaded `contributions`; both share the same
+ * ledger. Admin-gated.
  */
 export async function GET(request: Request) {
   if (!(await getAdminSession()))
@@ -32,9 +32,9 @@ export async function GET(request: Request) {
   const unlockBps =
     Number.isFinite(pct) && pct > 0 && pct <= 100 ? Math.round(pct * 100) : 0;
 
-  const { degxMint } = await getSettings();
+  const degxMint = process.env.DEGX_MINT ?? "";
   const base = {
-    mint: degxMint ?? "",
+    mint: degxMint,
     tokenProgram: "",
     decimals: 0,
     transferFeeBps: 0,
@@ -42,7 +42,8 @@ export async function GET(request: Request) {
     recipients: [] as { wallet: string; owed: string }[],
     totals: ZERO_TOTALS,
   };
-  if (!degxMint) return NextResponse.json({ configured: false, ...base });
+  if (!degxMint)
+    return NextResponse.json({ configured: false, ...base, error: "Set DEGX_MINT in the environment." });
 
   try {
     const mint = new PublicKey(degxMint);

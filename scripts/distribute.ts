@@ -12,6 +12,7 @@
  *   DEGX_DISTRIBUTOR_SECRET_KEY  treasury secret — base58 OR a JSON byte array.
  *                                Its wallet must hold the $DEGX + SOL. SECRET:
  *                                keep it out of shell history and shared hosts.
+ *   DEGX_MINT                    the $DEGX SPL mint address (or pass --mint).
  *   SOLANA_RPC_URL               Helius (not the public RPC).
  *   DATABASE_URL                 same DB the app uses (ledger + master list).
  *
@@ -36,12 +37,7 @@ import {
   formatTokens,
 } from "@/lib/solana/distribute";
 import { buildPlan, type PlanRecipient, reconcileInflight } from "@/lib/distribution";
-import {
-  clearInflight,
-  commitConfirmed,
-  getSettings,
-  setInflight,
-} from "@/lib/db/queries";
+import { clearInflight, commitConfirmed, setInflight } from "@/lib/db/queries";
 import { db } from "@/lib/db";
 
 // ---- args --------------------------------------------------------------------
@@ -99,8 +95,8 @@ async function main() {
   if (!RPC) console.warn("⚠ SOLANA_RPC_URL not set — using public RPC (will rate-limit).");
   const c = new Connection(RPC || "https://api.mainnet-beta.solana.com", "confirmed");
 
-  const mintStr = str("mint") || (await getSettings()).degxMint;
-  if (!mintStr) die("No $DEGX mint — set it in the dashboard or pass --mint <addr>.");
+  const mintStr = str("mint") || process.env.DEGX_MINT;
+  if (!mintStr) die("Set DEGX_MINT in the environment or pass --mint <addr>.");
   let mint: PublicKey;
   try {
     mint = new PublicKey(mintStr!);
