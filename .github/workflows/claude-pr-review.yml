@@ -1,0 +1,132 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Self-contained Opus 4.8 review of each PR's diff, posted as a PR comment.
+# Mirrors the backend's claude-pr-review.yml. Only needs the ANTHROPIC_API_KEY
+# repo secret — no Claude GitHub App required.
+jobs:
+  pr-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Review PR diff with Claude (Opus 4.8)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Secure temp dir + cleanup
+          WORK_DIR=$(mktemp -d)
+          trap 'rm -rf "$WORK_DIR"' EXIT
+
+          # Files changed in this PR (base..head), code only (Next.js + TS/TSX + SQL).
+          GLOBS='*.ts *.tsx *.js *.jsx *.json *.sql :!*.env* :!bun.lock :!package-lock.json :!node_modules/** :!.github/**'
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- $GLOBS)
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No code changes to review"
+            exit 0
+          fi
+
+          # The DIFF first (what this PR changed) - this is what we review. It
+          # leads so the head -c truncation below drops trailing CONTEXT, never
+          # the diff itself.
+          echo "=== DIFF (WHAT THIS PR CHANGED - review THIS) ===" > "$WORK_DIR/files.txt"
+          git diff "$BASE_SHA" "$HEAD_SHA" -- $GLOBS >> "$WORK_DIR/files.txt"
+
+          # Full content of each changed file - READ-ONLY CONTEXT to understand
+          # the change; unchanged / pre-existing code here must NOT be flagged.
+          echo "" >> "$WORK_DIR/files.txt"
+          echo "=== FULL FILES (READ-ONLY CONTEXT - do not flag unchanged code) ===" >> "$WORK_DIR/files.txt"
+          for file in $CHANGED_FILES; do
+            if [ -f "$file" ]; then
+              echo "" >> "$WORK_DIR/files.txt"
+              echo "========== FILE: $file ==========" >> "$WORK_DIR/files.txt"
+              cat "$file" >> "$WORK_DIR/files.txt"
+              echo "" >> "$WORK_DIR/files.txt"
+            fi
+          done
+
+          # Stay within token limits
+          head -c 80000 "$WORK_DIR/files.txt" > "$WORK_DIR/files_truncated.txt"
+
+          jq -n \
+            --rawfile code "$WORK_DIR/files_truncated.txt" \
+            --arg title "$PR_TITLE" \
+            '{
+              model: "claude-opus-4-8",
+              max_tokens: 4096,
+              messages: [{
+                role: "user",
+                content: ("You are a security-focused code reviewer for the $DEGX presale + token-claim site (Next.js App Router + Solana). It records USDC contributions in Postgres and distributes $DEGX from a TREASURY wallet via a signed self-service claim flow and an airdrop script (treasury key in server env).\n\nPull request: " + $title + "\n\nBelow is the DIFF for this PR (the changes to review), followed by the full files as READ-ONLY context.\n\n" + $code + "\n\nReport a finding ONLY if it is INTRODUCED or directly worsened by the changed lines in the diff. Treat the full files purely as read-only context to understand the change. Do NOT report pre-existing issues in unchanged code. Within the diff, check for:\n\n## Security\n- SQL injection (Postgres/Drizzle queries built from user input)\n- Missing authentication/authorization on API routes (admin, claim, contributions)\n- Hardcoded or NEXT_PUBLIC_-exposed secrets (treasury private key, RPC api-key, HMAC access secret) or secrets leaked in logs/responses\n- Weak or bypassed access-token / signed-message verification\n\n## Fund safety ($DEGX claim + distribution)\n- Claim/airdrop sending the WRONG amount, or to any wallet other than the signature-proven contributor wallet\n- Double-pay / idempotency holes in the degx_distributions ledger (the atomic claim, tranche keying, status state machine)\n- ed25519 (tweetnacl) signature verification weakened, missing freshness/replay protection, or skipped\n- A send path reachable before the gate (DEGX_MINT / treasury / RPC) or with treasury balance unchecked\n- Tranche math errors (40%/60% split, per-row vs aggregate flooring)\n- A landed-but-unconfirmed tx mis-stamped as failed/retryable (double-spend)\n\n## Code Quality & Access Control\n- Missing input validation (wallet/base58, amounts)\n- Improper error handling that leaks internals\n- IDOR / missing access checks / privilege escalation\n\nIf the diff introduces no new issues, respond severity=clean, even if the surrounding files have pre-existing concerns. Never flag pre-existing or unchanged code.\n\nRespond with ONLY a JSON object: {\"severity\": \"clean|warning|critical\", \"findings\": \"markdown findings here\"}. If no issues, severity=clean.")
+              }]
+            }' > "$WORK_DIR/payload.json"
+
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d @"$WORK_DIR/payload.json")
+
+          # Surface Anthropic API errors explicitly; extract the JSON object
+          # robustly (the model may wrap it in prose or code fences).
+          REVIEW=$(echo "$RESPONSE" | jq -r '.content[0].text // empty')
+          API_ERR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+
+          if [ -z "$REVIEW" ]; then
+            echo "::group::Anthropic raw response (truncated)"
+            echo "$RESPONSE" | head -c 1500; echo
+            echo "::endgroup::"
+            SEVERITY="error"
+            FINDINGS="Claude review could not run — Anthropic API error: ${API_ERR:-unknown (see raw response in logs)}"
+          else
+            # Strip everything before the first { and after the last } → bare JSON
+            CLEAN_REVIEW=$(printf '%s' "$REVIEW" | tr -d '\r\n' | sed 's/^[^{]*//; s/[^}]*$//')
+            SEVERITY=$(printf '%s' "$CLEAN_REVIEW" | jq -r '.severity // "unknown"' 2>/dev/null || echo "unknown")
+            FINDINGS=$(printf '%s' "$CLEAN_REVIEW" | jq -r '.findings // "See workflow logs"' 2>/dev/null || echo "See workflow logs")
+            if [ "$SEVERITY" = "unknown" ]; then
+              echo "::group::Unparseable review text (truncated)"
+              printf '%s' "$REVIEW" | head -c 1500; echo
+              echo "::endgroup::"
+            fi
+          fi
+          echo "Review result: $SEVERITY"
+
+          # Emoji per severity
+          case "$SEVERITY" in
+            clean)    HEADER="✅ **Claude review: clean** — no issues found." ;;
+            warning)  HEADER="⚠️ **Claude review: warning**" ;;
+            critical) HEADER="🚨 **Claude review: critical**" ;;
+            error)    HEADER="❌ **Claude review failed to run**" ;;
+            *)        HEADER="ℹ️ **Claude review** (could not parse severity — see workflow logs)" ;;
+          esac
+
+          # Post the review as a PR comment (PRs use the issues comments API)
+          if [ "$SEVERITY" = "clean" ]; then
+            BODY="$HEADER"
+          else
+            BODY="$HEADER"$'\n\n'"$FINDINGS"
+          fi
+
+          jq -n --arg body "$BODY"$'\n\n---\n*Automated review by Claude (Opus 4.8) on this pull request*' \
+            '{ body: $body }' > "$WORK_DIR/comment.json"
+
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            -d @"$WORK_DIR/comment.json"
+
+          echo "Posted review comment to PR #${PR_NUMBER}"
