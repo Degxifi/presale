@@ -80,6 +80,11 @@ export const distributions = pgTable(
     inflightAmount: numeric("inflight_amount", { precision: 40, scale: 0 }),
     inflightSig: text("inflight_sig"),
     inflightLvbh: bigint("inflight_lvbh", { mode: "number" }),
+    // Permanent on-chain proof: the signature of every confirmed transfer to
+    // this wallet, appended at commit time. A wallet accrues one per tranche
+    // (TGE, then each vesting unlock). `distributed` is the running total; this
+    // is the audit trail of exactly which txs delivered it.
+    sigs: text("sigs").array().notNull().default(sql`'{}'::text[]`),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

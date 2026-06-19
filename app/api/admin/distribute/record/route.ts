@@ -68,6 +68,13 @@ export async function POST(request: Request) {
     const alloc = await getConfirmedAllocations();
     const state = new Map((await getDistributionRows()).map((r) => [r.wallet, r]));
 
+    const prepared: {
+      wallet: string;
+      amount: string;
+      sig: string;
+      lvbh: number;
+      target: string;
+    }[] = [];
     for (const it of items) {
       const st = state.get(it.wallet);
       if (st?.inflightSig)
@@ -77,7 +84,8 @@ export async function POST(request: Request) {
         );
       const totalBase = (alloc.get(it.wallet) ?? 0n) * scale;
       const distributed = st ? BigInt(st.distributed) : 0n;
-      const owed = unlockedTarget(totalBase, unlockBps) - distributed;
+      const target = unlockedTarget(totalBase, unlockBps);
+      const owed = target - distributed;
       let amount: bigint;
       try {
         amount = BigInt(it.amount);
@@ -89,11 +97,25 @@ export async function POST(request: Request) {
           { error: `Amount ${it.amount} for ${it.wallet} exceeds owed ${owed}.` },
           { status: 400 },
         );
+      prepared.push({
+        wallet: it.wallet,
+        amount: it.amount,
+        sig: it.sig,
+        lvbh: it.lvbh,
+        target: target.toString(),
+      });
     }
 
-    await setInflight(
-      items.map((it) => ({ wallet: it.wallet, amount: it.amount, sig: it.sig, lvbh: it.lvbh })),
-    );
+    // The loop above gives friendly 400/409s for the common case; setInflight is
+    // the atomic backstop that also serializes truly-concurrent runs.
+    try {
+      await setInflight(prepared);
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Conflict — reload the plan and retry." },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ ok: true, recorded: items.length });
   }
 

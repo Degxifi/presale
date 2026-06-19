@@ -18,6 +18,7 @@ import { confirmSignature } from "@/lib/solana/usdc";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ConnectWalletButton } from "@/components/wallet/connect-wallet-button";
+import { ImportPanel } from "./import-panel";
 
 const PRESETS = [40, 60, 80, 100]; // cumulative unlock % (TGE 40, then vesting)
 const WAVE = 4; // batches signed + sent per wallet approval
@@ -264,6 +265,9 @@ export function DistributionPanel() {
           </p>
         )}
       </div>
+
+      {/* Master list import — what the distribution pays from */}
+      <ImportPanel />
 
       {plan?.configured && (
         <>

@@ -48,6 +48,11 @@ const ALLOWED_METHODS = new Set([
   "sendTransaction",
   "simulateTransaction",
   "getAccountInfo",
+  // Admin token-distribution: the panel checks which recipient ATAs already
+  // exist (fetchMissingAtas) from the browser, which batches address lookups
+  // into getMultipleAccountsInfo. Without this the distribution 403s before it
+  // can send anything.
+  "getMultipleAccountsInfo",
   "getFeeForMessage",
 ]);
 

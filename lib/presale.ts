@@ -17,6 +17,19 @@ export function degxForUsdc(usdcAmount: number, tierPrice: number): number {
   return usdcAmount / tierPrice;
 }
 
+/**
+ * Exact floored $DEGX allocation (whole tokens) for a contribution, via integer
+ * math. Float division dips below integers at boundaries — e.g. 180 / 0.00036 is
+ * exactly 500000, but IEEE-754 yields 499999.9999…, so Math.floor() would
+ * under-allocate by a token. Scaling both operands to integers (×1e6) and using
+ * BigInt division floors correctly. Used by the distribution + the import guard.
+ */
+export function degxAllocationFloor(usdcAmount: number, tierPrice: number): bigint {
+  const usdcE6 = BigInt(Math.round(usdcAmount * 1e6));
+  const priceE6 = BigInt(Math.round(tierPrice * 1e6));
+  return priceE6 > 0n ? usdcE6 / priceE6 : 0n;
+}
+
 /** Token price implied by a target market cap (FDV basis = total supply). */
 export function priceAtMarketCap(marketCap: number): number {
   return marketCap / TOKEN.totalSupply;
