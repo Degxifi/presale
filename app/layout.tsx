@@ -46,6 +46,9 @@ export const metadata: Metadata = {
 
 // Theme color matches each mode's background for a seamless browser chrome
 export const viewport: Viewport = {
+  // cover = let content extend under the notch/home-indicator so the modal's
+  // env(safe-area-inset-*) padding resolves to real values on iOS.
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f7f8fa" },
     { media: "(prefers-color-scheme: dark)", color: "#0d1117" },
