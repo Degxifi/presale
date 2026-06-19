@@ -1,17 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { WalletReadyState } from "@solana/wallet-adapter-base";
+import { Check, Copy, ExternalLink, Smartphone } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { buttonVariants } from "@/components/ui/button";
 import { walletBrowseLinks } from "@/lib/wallet/mobile";
 
+const MWA = "Mobile Wallet Adapter";
+
 /**
- * Shown on a mobile browser that has no injected wallet. Instead of the
- * wallet-adapter modal's deep-link (which can hand off to a wallet and land on
- * a 404), it sends the user into a wallet's in-app browser — where the wallet
- * injects and connect/buy work natively. Phantom/Solflare have "browse"
- * universal links; Jupiter Mobile and others use the copy-link path.
+ * Shown on a mobile browser with no real injected wallet. Instead of the generic
+ * wallet-adapter modal (unbranded + the slow Mobile-Wallet-Adapter handoff), it
+ * offers the branded paths: open this page inside Phantom/Solflare's in-app
+ * browser (universal "browse" links → native injection, fast). It ALSO offers the
+ * device's Mobile Wallet Adapter as an option (Android) for users who prefer it,
+ * plus a copy-link fallback for any other wallet (e.g. Jupiter Mobile).
  */
 export function MobileWalletSheet({
   open,
@@ -21,19 +26,73 @@ export function MobileWalletSheet({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const { wallets, wallet, select, connect, connected, connecting } = useWallet();
+  const [pendingMwa, setPendingMwa] = useState(false);
+
+  // Preserve the CURRENT path (origin + pathname) so a deep-link from /claim
+  // re-opens /claim inside the wallet browser — not the homepage. Drop query/hash.
   const url =
     typeof window !== "undefined"
-      ? window.location.origin
+      ? window.location.origin + window.location.pathname
       : "https://presale.degxifi.com";
   const links = walletBrowseLinks(url);
 
+  // The Mobile Wallet Adapter is only present/usable on Android; show its button
+  // only when the adapter is actually registered.
+  const hasMwa = wallets.some(
+    (w) =>
+      w.adapter.name === MWA &&
+      (w.readyState === WalletReadyState.Installed ||
+        w.readyState === WalletReadyState.Loadable),
+  );
+
+  // select() propagates async, so connect AFTER the selected wallet becomes MWA.
+  useEffect(() => {
+    if (!pendingMwa) return;
+    if (wallet?.adapter.name === MWA && !connected && !connecting) {
+      setPendingMwa(false);
+      connect().catch(() => {}); // user-cancel / adapter error is non-fatal
+      onClose();
+    }
+  }, [pendingMwa, wallet, connected, connecting, connect, onClose]);
+
+  const useDeviceWallet = async () => {
+    const mwaName = wallets.find((w) => w.adapter.name === MWA)?.adapter.name;
+    if (!mwaName) return;
+    if (wallet?.adapter.name === MWA) {
+      // already selected → connect directly
+      try { await connect(); } catch { /* non-fatal */ }
+      onClose();
+    } else {
+      setPendingMwa(true);
+      select(mwaName); // the effect above connects once selection lands
+    }
+  };
+
   const copy = async () => {
+    let ok = false;
     try {
       await navigator.clipboard.writeText(url);
+      ok = true;
+    } catch {
+      // Fallback for insecure (http) contexts / older mobile browsers where the
+      // async clipboard API is unavailable.
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        ok = false; // both failed — the URL is shown below for manual copy
+      }
+    }
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard blocked — the URL is shown below for manual copy
     }
   };
 
@@ -41,8 +100,8 @@ export function MobileWalletSheet({
     <Dialog open={open} onClose={onClose} title="Open in your wallet">
       <div className="space-y-4 text-sm">
         <p className="text-muted">
-          On mobile, open the presale inside your wallet&apos;s browser to connect
-          and buy. Pick your wallet:
+          On mobile, open this page inside your wallet&apos;s browser to connect.
+          Pick your wallet:
         </p>
 
         <div className="space-y-2">
@@ -58,6 +117,17 @@ export function MobileWalletSheet({
           >
             Open in Solflare <ExternalLink className="size-4" />
           </a>
+          {hasMwa && (
+            <button
+              type="button"
+              onClick={useDeviceWallet}
+              disabled={connecting || pendingMwa}
+              className={buttonVariants({ variant: "secondary", className: "w-full" })}
+            >
+              <Smartphone className="size-4" />
+              {connecting || pendingMwa ? "Connecting…" : "Use your device wallet"}
+            </button>
+          )}
           <button
             type="button"
             onClick={copy}
@@ -76,9 +146,11 @@ export function MobileWalletSheet({
         </div>
 
         <p className="text-xs leading-relaxed text-muted">
-          Using <span className="text-foreground">Jupiter Mobile</span> or another
-          wallet? Tap <span className="text-foreground">Copy link</span>, open your
-          wallet app&apos;s built-in browser, and paste{" "}
+          <span className="text-foreground">Use your device wallet</span> opens your
+          phone&apos;s Mobile Wallet Adapter. Using{" "}
+          <span className="text-foreground">Jupiter Mobile</span> or another wallet?
+          Tap <span className="text-foreground">Copy link</span>, open your wallet
+          app&apos;s built-in browser, and paste{" "}
           <span className="break-all font-mono text-foreground">{url}</span>.
         </p>
       </div>

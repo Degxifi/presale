@@ -59,6 +59,14 @@ export const contributions = pgTable(
   ],
 );
 
+/**
+ * NOTE: the $DEGX distribution ledger `degx_distributions` (one row per wallet,
+ * idempotency for the self-service claim API + the airdrop script) is managed via
+ * raw SQL in lib/db/queries.ts (ensure/claim/stamp) — deliberately NOT a drizzle
+ * table, so drizzle never tries to migrate it. `ensureDistributionsTable()`
+ * creates it idempotently on first use.
+ */
+
 /** Single-row (id = 1) admin-controlled settings. */
 export const appSettings = pgTable("app_settings", {
   id: smallint("id").primaryKey().default(1),
