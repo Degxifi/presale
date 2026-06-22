@@ -1,51 +1,82 @@
-import type { Metadata } from "next";
-import { buttonVariants } from "@/components/ui/button";
+import { cookies } from "next/headers";
+import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access";
 import { Container } from "@/components/ui/container";
+import { Section, SectionHeader } from "@/components/ui/section";
+import { Reveal } from "@/components/motion/reveal";
+import { Hero } from "./_components/hero";
+import { StatsStrip } from "./_components/stats-strip";
+import { TrustBar } from "./_components/trust-bar";
+import { TierCards } from "./_components/tier-cards";
+import { RoiScenarios } from "./_components/roi-scenarios";
+import { HowItWorksSection } from "./_components/how-it-works-section";
+import { FaqSection } from "./_components/faq-section";
+import { FinalCta } from "./_components/final-cta";
 
-export const metadata: Metadata = {
-  title: "Presale Ended",
-  description:
-    "The $DEGX presale has ended. Continue in the Degxifi app.",
-};
+export default async function PresaleLandingPage() {
+  // Membership tier from the access cookie — Early Believers (round 1) is
+  // reserved for tier-1 members (D-VIP/D-Pro levels 3-6).
+  const cookieStore = await cookies();
+  const access = await verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value, {
+    expectCookie: true,
+  });
+  const accessTier = access?.tier ?? null;
 
-const APP_URL = "https://app.degxifi.com";
-
-/**
- * The presale has ended. The landing page now points everyone to the app
- * instead of the buy flow. (The /claim route stays live so presale buyers can
- * still claim their $DEGX.)
- */
-export default function PresaleEndedPage() {
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      {/* subtle backdrop glow, mirrors the landing hero */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-40 -z-10 mx-auto h-80 max-w-3xl rounded-full bg-accent/10 blur-3xl"
-      />
-      <Container className="flex flex-1 flex-col items-center justify-center py-24 text-center">
-        <h1 className="max-w-3xl text-balance text-4xl font-bold tracking-tight sm:text-5xl">
-          The <span className="text-accent">$DEGX</span> presale has ended
-        </h1>
+    <>
+      <Hero />
 
-        <p className="mt-6 max-w-xl text-balance text-lg text-muted">
-          Thank you to everyone who took part. Please go to the app to continue.
-        </p>
-
+      <Container className="pb-2">
+        <Reveal>
+          <StatsStrip />
+        </Reveal>
         <div className="mt-10">
-          <a href={APP_URL} className={buttonVariants({ size: "lg" })}>
-            Go to the app
-          </a>
+          <TrustBar />
         </div>
-
-        <p className="mt-6 text-sm text-muted">
-          Bought in the presale?{" "}
-          <a href="/claim" className="font-semibold text-accent hover:underline">
-            Claim your $DEGX
-          </a>
-          .
-        </p>
       </Container>
-    </main>
+
+      <Section id="tiers">
+        <SectionHeader
+          eyebrow="Presale Tiers"
+          title="Choose your tier"
+          description="Tiers fill in order — the earlier you join, the lower your price."
+        />
+        <Reveal className="mt-12">
+          <TierCards accessTier={accessTier} />
+        </Reveal>
+      </Section>
+
+      <Section id="returns" className="pt-0">
+        <SectionHeader
+          eyebrow="Profit Scenarios"
+          title="What you could make"
+        />
+        <Reveal className="mx-auto mt-12 max-w-3xl">
+          <RoiScenarios />
+        </Reveal>
+      </Section>
+
+      <Section id="how-it-works" className="pt-0">
+        <SectionHeader
+          eyebrow="How It Works"
+          title="From USDC to $DEGX in five steps"
+        />
+        <Reveal className="mt-12">
+          <HowItWorksSection />
+        </Reveal>
+      </Section>
+
+      <Section id="faq" className="pt-0">
+        <SectionHeader eyebrow="FAQ" title="Questions, answered" />
+        <Reveal className="mt-12">
+          <FaqSection />
+        </Reveal>
+      </Section>
+
+      <Section className="pt-0">
+        <Reveal>
+          <FinalCta />
+        </Reveal>
+      </Section>
+    </>
   );
 }
